@@ -4,8 +4,10 @@
  * - https://infyspringboard.onwingspan.com
  * - Course overview & Table of Contents navigation (/app/toc/...)
  * - Content Viewer automation (/app/viewer/...)
- * - Video.js, HTML5 video, Article reading, Assessments, and SCORM
- * - One-click "Mark as Complete" & "Next Content" progression
+ * - Video.js & HTML5 video playback completion
+ * - Hands-on coding exercises (Ace editor, Verify, Run, Submit)
+ * - Article reading & Assessment quizzes
+ * - "Mark as Complete" with Angular Material Dialog confirmation
  */
 (function () {
   const SpringboardAdapter = {
@@ -31,7 +33,8 @@
       return window.location.pathname.includes('/viewer/') || 
              document.querySelector('ws-app-viewer') !== null ||
              document.querySelector('ws-widget-player-video') !== null ||
-             document.querySelector('ws-viewer-toc') !== null;
+             document.querySelector('ws-viewer-toc') !== null ||
+             document.querySelector('#focus_submit_handson') !== null;
     },
 
     async init() {
@@ -80,7 +83,6 @@
         DomUtils.simulateClick(actionBtn);
         await DomUtils.sleep(3000);
       } else {
-        // Fallback: click first unit in TOC
         const firstUnit = document.querySelector('mat-tree-node, .toc-unit, .mat-list-item, .resource-item');
         if (firstUnit) {
           DomUtils.simulateClick(firstUnit);
@@ -91,7 +93,7 @@
 
     /**
      * Master Viewer Completer Loop
-     * Progresses sequentially through units: Video -> Assessment -> Mark Complete Dialog -> Next
+     * Handles: Hands-on Labs -> Videos -> Quizzes -> Mark Complete Dialog -> Next Unit
      */
     async runCourseCompleter() {
       AutomatorCore.notify('Infosys Springboard Master Completer running...', 'info');
@@ -109,16 +111,21 @@
         AutomatorCore.notify(`[Step ${step}] Processing: "${unitTitle}"`, 'info');
         AutomatorCore.updateHUD(`Processing: ${unitTitle}`, 50);
 
-        // 2. Handle Video if present
+        // 2. Handle Hands-on coding lab if present (Verify + Submit)
+        const isHandsOn = await this.handleHandsOnIfPresent();
+
+        // 3. Handle Video if present
         await this.handleVideoIfPresent();
 
-        // 3. Handle Assessment / Quiz options if present
+        // 4. Handle Assessment / Quiz options if present
         await this.handleAssessmentIfPresent();
 
-        // 4. Click "Mark as Complete" AND CONFIRM the Wingspan dialog!
-        await this.markCurrentUnitComplete();
+        // 5. If NOT a hands-on exercise, trigger & confirm "Mark as Complete"
+        if (!isHandsOn) {
+          await this.markCurrentUnitComplete();
+        }
 
-        // 5. Advance to Next Unit
+        // 6. Advance to Next Unit
         const advanced = await this.advanceToNextUnit();
         if (!advanced) {
           AutomatorCore.notify('🎉 Course completed or no more units available!', 'info');
@@ -128,8 +135,52 @@
         }
 
         // Wait for next unit to render cleanly
-        await DomUtils.sleep(3000);
+        await DomUtils.sleep(3500);
       }
+    },
+
+    /**
+     * Handle Hands-on Coding Lab exercises (Ace editor, Verify, Run, Submit)
+     */
+    async handleHandsOnIfPresent() {
+      const submitBtn = document.querySelector('#focus_submit_handson, button[aria-label="submit code pane text"]');
+      const verifyBtn = document.querySelector('#focus_verify_handson, button[aria-label="verify code pane text"]');
+      const executeBtn = document.querySelector('#focus_execute_handson, button[aria-label="execute code pane text"]');
+
+      if (submitBtn || verifyBtn || executeBtn) {
+        AutomatorCore.notify('Hands-on coding lab detected!', 'info');
+
+        // 1. Run / Verify code first
+        if (verifyBtn && !verifyBtn.disabled) {
+          AutomatorCore.notify('Clicking "Verify" code test cases...', 'info');
+          this.triggerClick(verifyBtn);
+          await DomUtils.sleep(3000);
+        } else if (executeBtn && !executeBtn.disabled) {
+          AutomatorCore.notify('Clicking "Run" code...', 'info');
+          this.triggerClick(executeBtn);
+          await DomUtils.sleep(2000);
+        }
+
+        // 2. Click Submit
+        if (submitBtn && !submitBtn.disabled) {
+          AutomatorCore.notify('Clicking "Submit" on hands-on exercise...', 'info');
+          this.triggerClick(submitBtn);
+          await DomUtils.sleep(3000);
+
+          // Check if any confirmation dialog appears
+          const dialogConfirm = await this.waitForConfirmDialog(2500);
+          if (dialogConfirm) {
+            this.triggerClick(dialogConfirm);
+            await DomUtils.sleep(1500);
+          }
+          AutomatorCore.notify('Hands-on exercise successfully submitted!', 'info');
+        }
+
+        await DomUtils.sleep(1500);
+        return true;
+      }
+
+      return false;
     },
 
     /**
@@ -164,7 +215,7 @@
       // Video.js Done button if visible
       const doneBtn = document.querySelector('button.vjs-done-button');
       if (doneBtn && !doneBtn.disabled) {
-        DomUtils.simulateClick(doneBtn);
+        this.triggerClick(doneBtn);
         await DomUtils.sleep(1000);
       }
     },
@@ -181,14 +232,13 @@
       quizOptions.forEach(opt => {
         try {
           if (!opt.classList.contains('mat-radio-checked') && !opt.classList.contains('mat-checkbox-checked')) {
-            DomUtils.simulateClick(opt);
+            this.triggerClick(opt);
           }
         } catch (e) {}
       });
 
       await DomUtils.sleep(600);
 
-      // Look for Submit button
       const buttons = Array.from(document.querySelectorAll('button'));
       const submitBtn = buttons.find(b => {
         if (!b.offsetParent) return false;
@@ -197,7 +247,7 @@
       });
 
       if (submitBtn && !submitBtn.disabled) {
-        DomUtils.simulateClick(submitBtn);
+        this.triggerClick(submitBtn);
         await DomUtils.sleep(1200);
       }
     },
@@ -206,11 +256,11 @@
      * Click Wingspan's "Mark as Complete" button AND confirm the popup modal dialog
      */
     async markCurrentUnitComplete() {
-      // 1. First check if a confirmation dialog is already open on screen
-      let confirmBtn = document.querySelector('ws-widget-mark-as-complete-dialog button[aria-label="Mark as Complete button"], ws-widget-mark-as-complete-dialog button.mat-raised-button.mat-primary');
+      // 1. Check if a confirmation dialog is already open on screen
+      let confirmBtn = await this.waitForConfirmDialog(1000);
       if (confirmBtn) {
         AutomatorCore.notify('Confirming existing "Mark as complete" dialog...', 'info');
-        DomUtils.simulateClick(confirmBtn);
+        this.triggerClick(confirmBtn);
         await DomUtils.sleep(1500);
         return true;
       }
@@ -235,24 +285,17 @@
 
       if (triggerBtn) {
         AutomatorCore.notify('Clicking "Mark as Complete" icon...', 'info');
-        DomUtils.simulateClick(triggerBtn);
-        await DomUtils.sleep(800);
+        this.triggerClick(triggerBtn);
 
-        // 3. Confirm in the Wingspan dialog: <ws-widget-mark-as-complete-dialog>
-        confirmBtn = document.querySelector('ws-widget-mark-as-complete-dialog button[aria-label="Mark as Complete button"], ws-widget-mark-as-complete-dialog button.mat-raised-button.mat-primary');
+        // 3. Wait up to 3 seconds for the Angular Material confirmation dialog to render
+        confirmBtn = await this.waitForConfirmDialog(3000);
         if (confirmBtn) {
           AutomatorCore.notify('Confirming "Mark as complete" dialog...', 'info');
-          DomUtils.simulateClick(confirmBtn);
+          this.triggerClick(confirmBtn);
           await DomUtils.sleep(2000);
           return true;
         } else {
-          AutomatorCore.notify('Confirmation dialog button not detected, checking for generic dialog...', 'warn');
-          const anyDialogBtn = document.querySelector('.mat-dialog-actions button.mat-raised-button.mat-primary');
-          if (anyDialogBtn) {
-            DomUtils.simulateClick(anyDialogBtn);
-            await DomUtils.sleep(1500);
-            return true;
-          }
+          AutomatorCore.notify('Confirmation dialog did not appear (may already be marked complete).', 'info');
         }
       }
 
@@ -260,13 +303,36 @@
     },
 
     /**
+     * Polls for Angular Material confirmation dialog buttons
+     */
+    async waitForConfirmDialog(maxWaitMs = 3000) {
+      const startTime = Date.now();
+      while (Date.now() - startTime < maxWaitMs) {
+        const dialog = document.querySelector('ws-widget-mark-as-complete-dialog, mat-dialog-container, .cdk-overlay-pane');
+        if (dialog) {
+          const btns = Array.from(dialog.querySelectorAll('button'));
+          const confirm = btns.find(b => {
+            const txt = (b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim().toLowerCase();
+            return (txt.includes('mark as complete') || txt.includes('yes') || txt.includes('confirm') || txt.includes('ok')) && 
+                   !txt.includes('cancel');
+          });
+          if (confirm && confirm.offsetParent !== null && !confirm.disabled) {
+            return confirm;
+          }
+        }
+        await DomUtils.sleep(250);
+      }
+      return null;
+    },
+
+    /**
      * Click Next Content button or advance via TOC sidebar
      */
     async advanceToNextUnit() {
       // If any lingering dialog exists, dismiss or confirm it
-      const lingeringConfirm = document.querySelector('ws-widget-mark-as-complete-dialog button[aria-label="Mark as Complete button"]');
+      const lingeringConfirm = await this.waitForConfirmDialog(500);
       if (lingeringConfirm) {
-        DomUtils.simulateClick(lingeringConfirm);
+        this.triggerClick(lingeringConfirm);
         await DomUtils.sleep(1000);
       }
 
@@ -284,7 +350,7 @@
           const btn = document.querySelector(sel);
           if (btn && btn.offsetParent !== null && !btn.disabled) {
             AutomatorCore.notify('Advancing via "Next Content" button...', 'info');
-            DomUtils.simulateClick(btn);
+            this.triggerClick(btn);
             return true;
           }
         } catch (e) {}
@@ -296,15 +362,13 @@
 
     async advanceViaToc() {
       try {
-        // Open Contents tab if not already open
         const tabs = Array.from(document.querySelectorAll('div[role="tab"]'));
         const contentsTab = tabs.find(t => (t.innerText || '').toLowerCase().includes('contents'));
         if (contentsTab && !contentsTab.classList.contains('mat-tab-label-active')) {
-          DomUtils.simulateClick(contentsTab);
+          this.triggerClick(contentsTab);
           await DomUtils.sleep(1000);
         }
 
-        // Find next unit in TOC
         const units = Array.from(document.querySelectorAll('.toc-scrollable-content .flat-list, ws-viewer-toc .flat-list'));
         const activeUnitIndex = units.findIndex(u => u.classList.contains('highlight-content') || u.classList.contains('active'));
 
@@ -312,12 +376,33 @@
           const nextUnit = units[activeUnitIndex + 1];
           const nextTitle = nextUnit.querySelector('.content-title')?.innerText?.trim() || 'Next Unit';
           AutomatorCore.notify(`Clicking next unit in TOC: "${nextTitle}"...`, 'info');
-          DomUtils.simulateClick(nextUnit);
+          this.triggerClick(nextUnit);
           return true;
         }
       } catch (e) {}
 
       return false;
+    },
+
+    /**
+     * Dispatches full event chain for Angular Material / CDK elements
+     */
+    triggerClick(element) {
+      if (!element) return false;
+      try {
+        if (typeof element.scrollIntoView === 'function') {
+          element.scrollIntoView({ block: 'nearest' });
+        }
+      } catch (e) {}
+
+      try { element.focus(); } catch (e) {}
+      try { DomUtils.simulateClick(element); } catch (e) {}
+      try {
+        element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+        element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      } catch (e) {}
+      return true;
     },
 
     onStop(reason) {
