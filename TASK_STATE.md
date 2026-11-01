@@ -89,6 +89,9 @@
   - Fixed CDK Dialog confirmation: Angular CDK dialogs use `position: fixed`, causing `offsetParent === null`. Replaced with `getClientRects().length > 0` to accurately detect and confirm "Mark as Complete" modals.
   - Auto-Skip Hung Coding Sandboxes: Infosys's remote compilation backend freezes indefinitely on `"Your code is being submitted..."` with disabled buttons. Added immediate skip for hands-on exercises so the course keeps progressing through all 159 units without getting trapped.
   - Added Cross-Navigation Auto-Resume: Persisted `springboardRunning: true` in `chrome.storage.local` so starting on the Course Overview / TOC page automatically resumes and launches completion inside the viewer player upon page navigation.
+  - Fixed Top-Level Redeclaration SyntaxError: Replaced top-level `const DomUtils` with `window.DomUtils = window.DomUtils || { ... }` so script re-injections during SPA tab navigations never crash the extension with `Identifier 'DomUtils' has already been declared`.
+  - Auto-Switch from Zoiee Tutor to Contents: Detects when the viewer defaults to Zoiee Tutor tab and automatically switches to Contents tab.
+  - Fixed Completion Detection Bug: Differentiated `mat-icon.completed-color` (complete) from `button.mark-as-complete-mini` (incomplete) to prevent false-completion skipping.
 
 ---
 
