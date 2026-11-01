@@ -39,11 +39,21 @@
 
     async init() {
       console.log('[Springboard Adapter] Initialized on Wingspan platform:', window.location.pathname);
+      try {
+        const data = await chrome.storage.local.get(['springboardRunning']);
+        if (data.springboardRunning) {
+          console.log('[Springboard Adapter] Auto-resuming Springboard automator...');
+          setTimeout(() => {
+            this.start();
+          }, 1500);
+        }
+      } catch (e) {}
     },
 
     async start() {
       if (AutomatorCore.isRunning) return;
       AutomatorCore.setIsRunning(true);
+      await chrome.storage.local.set({ springboardRunning: true });
 
       AutomatorCore.showHUD('Analyzing Springboard Course...');
       AutomatorCore.notify('Infosys Springboard Automator started.', 'info');
@@ -421,8 +431,11 @@
       return false;
     },
 
-    onStop(reason) {
+    async onStop(reason) {
       console.log('[Springboard Adapter] Stopped:', reason);
+      try {
+        await chrome.storage.local.remove(['springboardRunning']);
+      } catch (e) {}
     }
   };
 

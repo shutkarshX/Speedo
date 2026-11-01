@@ -77,6 +77,19 @@
   - Problem: `targetUnit.classList.add('marked')` was executed prematurely before the slide had loaded and completed, giving the visual appearance of rushing forward ahead of the current slide.
   - Fix: Deferred marking `.marked` and green tick until AFTER all unit actions (slide activation, video fast-forward, quiz answering, Mark as Read toggle, and backend `content_complete`) have finished.
 
+- [x] **Step 12: Multi-Platform Architecture Modularization**
+  - Isolated platform logic into clean adapters under `content/platforms/`:
+    - `content/platforms/futureskills/futureskills.adapter.js` (100% FutureSkills Prime logic, zero regression).
+    - `content/platforms/springboard/springboard.adapter.js` (Infosys Springboard Wingspan provider).
+    - `content/platforms/generic/generic.adapter.js` (Universal fallback).
+  - Created `PLATFORMS.md` documentation for adding new platforms in 3 steps.
+
+- [x] **Step 13: Infosys Springboard (Wingspan / Lex LMS) Support**
+  - Target URL: `https://infyspringboard.onwingspan.com/web/en/app/toc/lex_auth_0131149320724398081685_shared/overview`
+  - Fixed CDK Dialog confirmation: Angular CDK dialogs use `position: fixed`, causing `offsetParent === null`. Replaced with `getClientRects().length > 0` to accurately detect and confirm "Mark as Complete" modals.
+  - Auto-Skip Hung Coding Sandboxes: Infosys's remote compilation backend freezes indefinitely on `"Your code is being submitted..."` with disabled buttons. Added immediate skip for hands-on exercises so the course keeps progressing through all 159 units without getting trapped.
+  - Added Cross-Navigation Auto-Resume: Persisted `springboardRunning: true` in `chrome.storage.local` so starting on the Course Overview / TOC page automatically resumes and launches completion inside the viewer player upon page navigation.
+
 ---
 
 ## 📝 Change Log

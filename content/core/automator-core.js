@@ -132,7 +132,7 @@ window.AutomatorCore = (function () {
    */
   function stop(reason = 'Automation stopped.') {
     isRunning = false;
-    chrome.storage.local.remove(['pathwayRunner', 'autoResumeCourse']);
+    chrome.storage.local.remove(['pathwayRunner', 'autoResumeCourse', 'springboardRunning']);
     chrome.runtime.sendMessage({ action: 'STOP_PATHWAY' }).catch(() => {});
     notify(reason, reason.includes('100%') ? 'info' : 'warn');
     updateHUD(reason, 0);
