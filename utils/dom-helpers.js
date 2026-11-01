@@ -2,7 +2,7 @@
  * Shared DOM and Automation Helper Utilities
  */
 
-const DomUtils = {
+window.DomUtils = window.DomUtils || {
   /**
    * Sleep for a specified number of milliseconds
    */
@@ -84,6 +84,3 @@ const DomUtils = {
     return true;
   }
 };
-
-// Make available in content script environment
-window.DomUtils = DomUtils;
