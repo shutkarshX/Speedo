@@ -130,17 +130,17 @@
             AutomatorCore.stop('🎉 Course Completed!');
             break;
           }
-          await DomUtils.sleep(3500);
+          await DomUtils.sleep(2000);
           continue;
         }
 
-        // 3. Handle Video if present
+        // 3. Start video playback if present so Mark as Complete unlocks immediately
         await this.handleVideoIfPresent();
 
         // 4. Handle Assessment / Quiz options if present
         await this.handleAssessmentIfPresent();
 
-        // 5. Always trigger & confirm "Mark as Complete" dialog
+        // 5. Instantly trigger & confirm "Mark as Complete" dialog
         await this.markCurrentUnitComplete();
 
         // 6. Advance to Next Unit
@@ -152,8 +152,8 @@
           break;
         }
 
-        // Wait for next unit to render cleanly
-        await DomUtils.sleep(3500);
+        // Wait briefly for next unit to render cleanly
+        await DomUtils.sleep(2000);
       }
     },
 
@@ -198,40 +198,28 @@
     },
 
     /**
-     * Fast-forward and complete Video.js or HTML5 videos
+     * Start video playback immediately so "Mark as Complete" unlocks without waiting for the full video
      */
     async handleVideoIfPresent() {
       const videos = Array.from(document.querySelectorAll('video'));
       if (videos.length === 0) return;
 
-      AutomatorCore.notify(`Found ${videos.length} video(s). Completing playback...`, 'info');
+      AutomatorCore.notify(`Found ${videos.length} video(s). Starting playback to unlock Mark as Complete...`, 'info');
 
       for (const vid of videos) {
         try {
           vid.muted = true;
           if (vid.paused) {
-            await vid.play().catch(() => {});
+            vid.play().catch(() => {});
           }
-          if (vid.duration && !vid.ended) {
-            vid.currentTime = Math.max(0, vid.duration - 0.2);
-          }
-          vid.dispatchEvent(new Event('timeupdate'));
-          vid.dispatchEvent(new Event('ended'));
-          if (typeof vid.onended === 'function') vid.onended();
+          vid.dispatchEvent(new Event('play'));
+          vid.dispatchEvent(new Event('playing'));
         } catch (e) {}
       }
 
-      // Also trigger Video.js instance directly in page's MAIN world
+      // Also trigger Video.js instance in MAIN world
       await AutomatorCore.runInMainWorld('VIDEO_ENDED');
-
-      await DomUtils.sleep(1500);
-
-      // Video.js Done button if visible
-      const doneBtn = document.querySelector('button.vjs-done-button');
-      if (doneBtn && !doneBtn.disabled) {
-        try { doneBtn.click(); } catch (e) {}
-        await DomUtils.sleep(1000);
-      }
+      await DomUtils.sleep(600);
     },
 
     /**
@@ -310,7 +298,7 @@
           AutomatorCore.notify('Confirming "Mark as complete" dialog...', 'info');
           await AutomatorCore.runInMainWorld('CONFIRM_MARK_COMPLETE');
           try { confirmBtn.click(); } catch (e) {}
-          await DomUtils.sleep(2000);
+          await DomUtils.sleep(800);
           return true;
         } else {
           AutomatorCore.notify('Confirmation dialog did not appear (may already be marked complete).', 'info');
