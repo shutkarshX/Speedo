@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Course & Test Automator",
+  "version": "2.0.0",
+  "description": "Multi-platform automated course, pathway, and quiz completion assistant.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Course Automator"
+  },
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/page-guard.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "utils/dom-helpers.js",
+        "content/core/automator-core.js",
+        "content/core/platform-registry.js",
+        "content/platforms/generic/generic.adapter.js",
+        "content/platforms/futureskills/futureskills.adapter.js",
+        "content/content.js"
+      ],
+      "css": ["content/content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

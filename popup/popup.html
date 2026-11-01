@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Course Automator</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo">⚡</div>
+      <div class="title-group">
+        <h1>Course Automator</h1>
+        <p class="subtitle">Single-Click Completion</p>
+      </div>
+    </div>
+
+    <div class="card status-card">
+      <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+        <div>
+          <span class="status-label">Platform:</span>
+          <span id="platformBadge" class="badge" style="background:#e0e7ff; color:#3730a3; font-weight:600;">Detecting...</span>
+        </div>
+        <div>
+          <span class="status-label">Status:</span>
+          <span id="statusBadge" class="badge badge-idle">Ready</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="action-buttons">
+      <button id="btnStart" class="btn btn-primary">
+        <span>🚀 Complete Course / Test</span>
+      </button>
+      <button id="btnCapture" class="btn btn-debug">
+        <span>📡 Send Page to AI (Live Inspect)</span>
+      </button>
+      <button id="btnStop" class="btn btn-secondary" disabled>
+        <span>⏹ Stop</span>
+      </button>
+    </div>
+
+    <div class="card log-container">
+      <div class="log-title">Activity Log</div>
+      <div id="logOutput" class="log-output">
+        <div class="log-entry log-info">System initialized. Click the button to start.</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
