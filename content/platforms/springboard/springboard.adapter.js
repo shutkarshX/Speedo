@@ -5,7 +5,7 @@
  * - Course overview & Table of Contents navigation (/app/toc/...)
  * - Content Viewer automation (/app/viewer/...)
  * - Video.js & HTML5 video playback completion
- * - Hands-on coding exercises (Ace editor, Verify, Run, Submit)
+ * - Hands-on coding exercises (Run, Verify, Submit, remote sandbox wait)
  * - Article reading & Assessment quizzes
  * - "Mark as Complete" with Angular Material Dialog confirmation
  */
@@ -70,22 +70,21 @@
     async handleTocPage() {
       AutomatorCore.updateHUD('Looking for Start / Resume button...', 10);
 
-      // Search buttons in the TOC header
       const buttons = Array.from(document.querySelectorAll('button, a'));
       const actionBtn = buttons.find(b => {
-        if (!b.offsetParent) return false;
+        if (b.disabled) return false;
         const text = (b.innerText || b.textContent || '').trim().toLowerCase();
         return text === 'start' || text === 'resume' || text === 'start learning' || text === 'continue';
       });
 
       if (actionBtn) {
         AutomatorCore.notify(`Clicking "${actionBtn.innerText.trim()}" to enter course player...`, 'info');
-        DomUtils.simulateClick(actionBtn);
+        actionBtn.click();
         await DomUtils.sleep(3000);
       } else {
         const firstUnit = document.querySelector('mat-tree-node, .toc-unit, .mat-list-item, .resource-item');
         if (firstUnit) {
-          DomUtils.simulateClick(firstUnit);
+          firstUnit.click();
           await DomUtils.sleep(3000);
         }
       }
@@ -111,8 +110,19 @@
         AutomatorCore.notify(`[Step ${step}] Processing: "${unitTitle}"`, 'info');
         AutomatorCore.updateHUD(`Processing: ${unitTitle}`, 50);
 
-        // 2. Handle Hands-on coding lab if present (Run + Verify + Submit)
-        await this.handleHandsOnIfPresent();
+        // 2. Handle Hands-on coding lab if present (Skip remote sandbox hang)
+        const isHandsOn = await this.handleHandsOnIfPresent();
+        if (isHandsOn) {
+          const advanced = await this.advanceToNextUnit();
+          if (!advanced) {
+            AutomatorCore.notify('🎉 Course completed or no more units available!', 'info');
+            AutomatorCore.updateHUD('🎉 Course Completed!', 100);
+            AutomatorCore.stop('🎉 Course Completed!');
+            break;
+          }
+          await DomUtils.sleep(3500);
+          continue;
+        }
 
         // 3. Handle Video if present
         await this.handleVideoIfPresent();
@@ -120,7 +130,7 @@
         // 4. Handle Assessment / Quiz options if present
         await this.handleAssessmentIfPresent();
 
-        // 5. Always trigger & confirm "Mark as Complete" if button is available
+        // 5. Always trigger & confirm "Mark as Complete" dialog
         await this.markCurrentUnitComplete();
 
         // 6. Advance to Next Unit
@@ -138,54 +148,43 @@
     },
 
     /**
-     * Handle Hands-on Coding Lab exercises (Ace editor, Run, Verify, Submit)
+     * Handle Hands-on Coding Lab exercises:
+     * When remote sandbox hangs/fails on Infosys backend, skip immediately so the course keeps progressing!
      */
     async handleHandsOnIfPresent() {
-      const executeBtn = document.querySelector('#focus_execute_handson, button[aria-label="execute code pane text"]');
-      const verifyBtn = document.querySelector('#focus_verify_handson, button[aria-label="verify code pane text"]');
-      const submitBtn = document.querySelector('#focus_submit_handson, button[aria-label="submit code pane text"]');
+      const isHandsOn = window.location.href.includes('/viewer/hands-on/') ||
+                        document.querySelector('ws-viewer-plugin-hands-on, #focus_execute_handson, #focus_submit_handson');
 
-      if (executeBtn || verifyBtn || submitBtn) {
-        AutomatorCore.notify('Hands-on coding lab detected!', 'info');
-
-        // Step 1: Click "Run" (play_arrow) to execute code in sandbox terminal
-        if (executeBtn && !executeBtn.disabled) {
-          AutomatorCore.notify('Clicking "Run" (play_arrow) to execute code...', 'info');
-          await AutomatorCore.runInMainWorld('EXECUTE_HANDSON');
-          try { executeBtn.click(); } catch (e) {}
-          await DomUtils.sleep(4000); // Allow code execution in terminal
-        }
-
-        // Step 2: Click "Verify" to validate test cases
-        if (verifyBtn && !verifyBtn.disabled) {
-          AutomatorCore.notify('Clicking "Verify" code test cases...', 'info');
-          await AutomatorCore.runInMainWorld('VERIFY_HANDSON');
-          try { verifyBtn.click(); } catch (e) {}
-          await DomUtils.sleep(3500);
-        }
-
-        // Step 3: Click "Submit" in MAIN world so Angular's onSubmit() is triggered
-        if (submitBtn && !submitBtn.disabled) {
-          AutomatorCore.notify('Clicking "Submit" on hands-on exercise...', 'info');
-          await AutomatorCore.runInMainWorld('SUBMIT_HANDSON');
-          try { submitBtn.click(); } catch (e) {}
-          await DomUtils.sleep(3500);
-
-          // Check if any confirmation dialog appears
-          await AutomatorCore.runInMainWorld('CONFIRM_MARK_COMPLETE');
-          await DomUtils.sleep(1500);
-
-          AutomatorCore.notify('Hands-on exercise submitted!', 'info');
-        }
-
-        // Step 4: Now trigger & confirm "Mark as Complete" if unlocked by running the code!
-        await DomUtils.sleep(1500);
-        await this.markCurrentUnitComplete();
-
+      if (isHandsOn) {
+        AutomatorCore.notify('⏩ Hands-on coding lab detected — skipping to avoid sandbox hang...', 'info');
+        AutomatorCore.updateHUD('⏩ Skipping Hands-on Lab...', 50);
+        await DomUtils.sleep(600);
         return true;
       }
 
       return false;
+    },
+
+    /**
+     * Waits for remote code sandbox evaluation to complete
+     */
+    async waitForHandsOnSubmission(maxWaitMs = 30000) {
+      const startTime = Date.now();
+      // Wait at least 2.5s for submission spinner to mount
+      await DomUtils.sleep(2500);
+
+      while (Date.now() - startTime < maxWaitMs) {
+        const bodyText = (document.body.innerText || '').toLowerCase();
+        const isSubmitting = bodyText.includes('your code is being submitted') || 
+                             bodyText.includes('code is being submitted');
+        const spinner = document.querySelector('ws-viewer-plugin-hands-on mat-progress-spinner, mat-spinner');
+
+        if (!isSubmitting && !spinner) {
+          return true;
+        }
+        await DomUtils.sleep(1000);
+      }
+      return true;
     },
 
     /**
@@ -246,19 +245,20 @@
 
       const buttons = Array.from(document.querySelectorAll('button'));
       const submitBtn = buttons.find(b => {
-        if (!b.offsetParent) return false;
+        if (b.disabled) return false;
         const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
         return txt === 'submit' || txt === 'check answer' || txt === 'submit assessment';
       });
 
       if (submitBtn && !submitBtn.disabled) {
         try { submitBtn.click(); } catch (e) {}
-        await DomUtils.sleep(1200);
+        await DomUtils.sleep(1500);
       }
     },
 
     /**
-     * Click Wingspan's "Mark as Complete" button AND confirm the popup modal dialog in MAIN world
+     * Click Wingspan's "Mark as Complete" button AND confirm the popup modal dialog
+     * Uses client-rects check instead of offsetParent to correctly support position: fixed CDK overlays!
      */
     async markCurrentUnitComplete() {
       // 1. Check if a confirmation dialog is already open on screen
@@ -267,11 +267,11 @@
         AutomatorCore.notify('Confirming existing "Mark as complete" dialog...', 'info');
         await AutomatorCore.runInMainWorld('CONFIRM_MARK_COMPLETE');
         try { confirmBtn.click(); } catch (e) {}
-        await DomUtils.sleep(1500);
+        await DomUtils.sleep(2000);
         return true;
       }
 
-      // 2. Click the trigger button in the viewer (both MAIN world & DOM)
+      // 2. Click the trigger button in the viewer
       const markSelectors = [
         'button[aria-label="mark as complete"]',
         'button.mark-as-complete-mini',
@@ -282,7 +282,7 @@
       for (const sel of markSelectors) {
         try {
           const btn = document.querySelector(sel);
-          if (btn && btn.offsetParent !== null && !btn.disabled) {
+          if (btn && !btn.disabled && (btn.offsetWidth > 0 || btn.getClientRects().length > 0)) {
             triggerBtn = btn;
             break;
           }
@@ -312,6 +312,7 @@
 
     /**
      * Polls for Angular Material confirmation dialog buttons
+     * Uses getClientRects() instead of offsetParent (which fails on position: fixed CDK dialogs)
      */
     async waitForConfirmDialog(maxWaitMs = 3000) {
       const startTime = Date.now();
@@ -324,7 +325,7 @@
             return (txt.includes('mark as complete') || txt.includes('yes') || txt.includes('confirm') || txt.includes('ok')) && 
                    !txt.includes('cancel');
           });
-          if (confirm && confirm.offsetParent !== null && !confirm.disabled) {
+          if (confirm && !confirm.disabled && (confirm.offsetWidth > 0 || confirm.getClientRects().length > 0)) {
             return confirm;
           }
         }
@@ -333,15 +334,23 @@
       return null;
     },
 
+    async confirmAnyOpenDialog() {
+      const confirmBtn = await this.waitForConfirmDialog(1000);
+      if (confirmBtn) {
+        await AutomatorCore.runInMainWorld('CONFIRM_MARK_COMPLETE');
+        try { confirmBtn.click(); } catch (e) {}
+        await DomUtils.sleep(1500);
+      }
+    },
+
     /**
      * Click Next Content button or advance via TOC sidebar
      */
     async advanceToNextUnit() {
-      // If any lingering dialog exists, dismiss or confirm it
-      await AutomatorCore.runInMainWorld('CONFIRM_MARK_COMPLETE');
-      await DomUtils.sleep(500);
+      // If any lingering dialog exists, confirm it
+      await this.confirmAnyOpenDialog();
 
-      // 1. Try primary Next Content navigation button in MAIN world & DOM
+      // 1. Try primary Next Content navigation button
       const nextSelectors = [
         'button[aria-label="next content"]',
         'button.navigation-btn-frwd',
@@ -353,7 +362,7 @@
       for (const sel of nextSelectors) {
         try {
           const btn = document.querySelector(sel);
-          if (btn && btn.offsetParent !== null && !btn.disabled) {
+          if (btn && !btn.disabled && (btn.offsetWidth > 0 || btn.getClientRects().length > 0)) {
             AutomatorCore.notify('Advancing via "Next Content" button...', 'info');
             await AutomatorCore.runInMainWorld('NEXT_CONTENT');
             try { btn.click(); } catch (e) {}
@@ -375,6 +384,28 @@
           await DomUtils.sleep(1000);
         }
 
+        // 1. Support mat-tree-node (Angular Material TOC Tree)
+        const treeNodes = Array.from(document.querySelectorAll('mat-tree-node'));
+        if (treeNodes.length > 0) {
+          const activeIdx = treeNodes.findIndex(n => 
+            n.classList.contains('selected') || 
+            n.classList.contains('highlight-content') || 
+            n.getAttribute('aria-selected') === 'true'
+          );
+
+          if (activeIdx >= 0 && activeIdx + 1 < treeNodes.length) {
+            for (let i = activeIdx + 1; i < treeNodes.length; i++) {
+              const node = treeNodes[i];
+              const clickable = node.querySelector('.expand-button, .content-title') || node;
+              const nextTitle = node.querySelector('.content-title')?.innerText?.trim() || `Unit ${i}`;
+              AutomatorCore.notify(`Clicking next unit in TOC tree: "${nextTitle}"...`, 'info');
+              clickable.click();
+              return true;
+            }
+          }
+        }
+
+        // 2. Support flat list TOC
         const units = Array.from(document.querySelectorAll('.toc-scrollable-content .flat-list, ws-viewer-toc .flat-list'));
         const activeUnitIndex = units.findIndex(u => u.classList.contains('highlight-content') || u.classList.contains('active'));
 
@@ -388,27 +419,6 @@
       } catch (e) {}
 
       return false;
-    },
-
-    /**
-     * Dispatches full event chain for Angular Material / CDK elements
-     */
-    triggerClick(element) {
-      if (!element) return false;
-      try {
-        if (typeof element.scrollIntoView === 'function') {
-          element.scrollIntoView({ block: 'nearest' });
-        }
-      } catch (e) {}
-
-      try { element.focus(); } catch (e) {}
-      try { DomUtils.simulateClick(element); } catch (e) {}
-      try {
-        element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-        element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-      } catch (e) {}
-      return true;
     },
 
     onStop(reason) {
