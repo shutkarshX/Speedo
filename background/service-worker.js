@@ -145,6 +145,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             } else if (typeof window.next_button === 'function') {
               window.next_button();
             }
+          } else if (command === 'EXECUTE_HANDSON') {
+            const btn = document.getElementById('focus_execute_handson') || 
+                        document.querySelector('button[aria-label="execute code pane text"]');
+            if (btn) {
+              console.log('[MAIN World] Clicking Run (execute) on Hands-on exercise');
+              btn.click();
+            }
           } else if (command === 'SUBMIT_HANDSON') {
             const btn = document.getElementById('focus_submit_handson') || 
                         document.querySelector('button[aria-label="submit code pane text"]');

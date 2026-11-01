@@ -111,8 +111,8 @@
         AutomatorCore.notify(`[Step ${step}] Processing: "${unitTitle}"`, 'info');
         AutomatorCore.updateHUD(`Processing: ${unitTitle}`, 50);
 
-        // 2. Handle Hands-on coding lab if present (Verify + Submit)
-        const isHandsOn = await this.handleHandsOnIfPresent();
+        // 2. Handle Hands-on coding lab if present (Run + Verify + Submit)
+        await this.handleHandsOnIfPresent();
 
         // 3. Handle Video if present
         await this.handleVideoIfPresent();
@@ -120,10 +120,8 @@
         // 4. Handle Assessment / Quiz options if present
         await this.handleAssessmentIfPresent();
 
-        // 5. If NOT a hands-on exercise, trigger & confirm "Mark as Complete"
-        if (!isHandsOn) {
-          await this.markCurrentUnitComplete();
-        }
+        // 5. Always trigger & confirm "Mark as Complete" if button is available
+        await this.markCurrentUnitComplete();
 
         // 6. Advance to Next Unit
         const advanced = await this.advanceToNextUnit();
@@ -140,36 +138,38 @@
     },
 
     /**
-     * Handle Hands-on Coding Lab exercises (Ace editor, Verify, Run, Submit)
+     * Handle Hands-on Coding Lab exercises (Ace editor, Run, Verify, Submit)
      */
     async handleHandsOnIfPresent() {
-      const submitBtn = document.querySelector('#focus_submit_handson, button[aria-label="submit code pane text"]');
-      const verifyBtn = document.querySelector('#focus_verify_handson, button[aria-label="verify code pane text"]');
       const executeBtn = document.querySelector('#focus_execute_handson, button[aria-label="execute code pane text"]');
+      const verifyBtn = document.querySelector('#focus_verify_handson, button[aria-label="verify code pane text"]');
+      const submitBtn = document.querySelector('#focus_submit_handson, button[aria-label="submit code pane text"]');
 
-      if (submitBtn || verifyBtn || executeBtn) {
+      if (executeBtn || verifyBtn || submitBtn) {
         AutomatorCore.notify('Hands-on coding lab detected!', 'info');
 
-        // 1. Run / Verify code first in MAIN world (Zone.js safe)
+        // Step 1: Click "Run" (play_arrow) to execute code in sandbox terminal
+        if (executeBtn && !executeBtn.disabled) {
+          AutomatorCore.notify('Clicking "Run" (play_arrow) to execute code...', 'info');
+          await AutomatorCore.runInMainWorld('EXECUTE_HANDSON');
+          try { executeBtn.click(); } catch (e) {}
+          await DomUtils.sleep(4000); // Allow code execution in terminal
+        }
+
+        // Step 2: Click "Verify" to validate test cases
         if (verifyBtn && !verifyBtn.disabled) {
           AutomatorCore.notify('Clicking "Verify" code test cases...', 'info');
           await AutomatorCore.runInMainWorld('VERIFY_HANDSON');
-          await DomUtils.sleep(3000);
-        } else if (executeBtn && !executeBtn.disabled) {
-          AutomatorCore.notify('Clicking "Run" code...', 'info');
-          try { executeBtn.click(); } catch (e) {}
-          await DomUtils.sleep(2000);
+          try { verifyBtn.click(); } catch (e) {}
+          await DomUtils.sleep(3500);
         }
 
-        // 2. Click Submit in MAIN world so Angular's onSubmit() is triggered directly
+        // Step 3: Click "Submit" in MAIN world so Angular's onSubmit() is triggered
         if (submitBtn && !submitBtn.disabled) {
           AutomatorCore.notify('Clicking "Submit" on hands-on exercise...', 'info');
           await AutomatorCore.runInMainWorld('SUBMIT_HANDSON');
-          // Fallback direct click
           try { submitBtn.click(); } catch (e) {}
-
-          // Wait 4 seconds for sandbox compilation & submission
-          await DomUtils.sleep(4000);
+          await DomUtils.sleep(3500);
 
           // Check if any confirmation dialog appears
           await AutomatorCore.runInMainWorld('CONFIRM_MARK_COMPLETE');
@@ -178,7 +178,10 @@
           AutomatorCore.notify('Hands-on exercise submitted!', 'info');
         }
 
+        // Step 4: Now trigger & confirm "Mark as Complete" if unlocked by running the code!
         await DomUtils.sleep(1500);
+        await this.markCurrentUnitComplete();
+
         return true;
       }
 
