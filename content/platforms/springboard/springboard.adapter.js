@@ -436,25 +436,80 @@
     },
 
     /**
-     * Click Next Content button or advance via TOC sidebar
+     * Advance to the next module in the TOC when at the end of a module (or on a code slide)
+     */
+    async advanceToNextModule() {
+      await this.ensureContentsTabActive();
+
+      // Find all module folders (level="0")
+      const folders = Array.from(document.querySelectorAll('mat-tree-node[level="0"], mat-tree-node:not([level="1"]):not([level="2"])'));
+      if (folders.length === 0) return false;
+
+      // Find active folder (currently expanded or containing selected slide)
+      let activeFolderIdx = folders.findIndex(f => 
+        f.getAttribute('aria-expanded') === 'true' || 
+        f.querySelector('.selected, .highlight-content') !== null
+      );
+
+      const nextFolderIdx = activeFolderIdx >= 0 ? activeFolderIdx + 1 : 0;
+
+      if (nextFolderIdx < folders.length) {
+        const nextFolder = folders[nextFolderIdx];
+        const folderTitle = nextFolder.querySelector('.content-title')?.innerText?.trim() || `Module ${nextFolderIdx}`;
+        AutomatorCore.notify(`📂 Expanding next module: "${folderTitle}"...`, 'info');
+        AutomatorCore.updateHUD(`Opening: ${folderTitle}`, 40);
+
+        // 1. Expand folder if collapsed
+        if (nextFolder.getAttribute('aria-expanded') !== 'true') {
+          const expander = nextFolder.querySelector('.toc-expand-icon, .expand-button') || nextFolder;
+          expander.click();
+          await DomUtils.sleep(800);
+        }
+
+        // 2. Click the first slide inside this newly opened module
+        const allNodes = Array.from(document.querySelectorAll('mat-tree-node'));
+        const folderPos = allNodes.indexOf(nextFolder);
+
+        if (folderPos >= 0) {
+          for (let j = folderPos + 1; j < allNodes.length; j++) {
+            const childNode = allNodes[j];
+            // Stop if we hit the next module folder
+            if (childNode.getAttribute('level') === '0' || childNode.querySelector('.toc-expand-icon')) {
+              break;
+            }
+            const slideTitle = childNode.querySelector('.content-title')?.innerText?.trim() || `Slide`;
+            AutomatorCore.notify(`🚀 Opening first slide in "${folderTitle}": "${slideTitle}"...`, 'info');
+            const clickable = childNode.querySelector('.content-title, .expand-button') || childNode;
+            clickable.click();
+            await DomUtils.sleep(2500);
+            return true;
+          }
+        }
+      }
+
+      return false;
+    },
+
+    /**
+     * Click Next Content button or advance via TOC sidebar / next module
      */
     async advanceToNextUnit() {
       // If any lingering dialog exists, confirm it
       await this.confirmAnyOpenDialog();
 
-      // 1. Try primary Next Content navigation button
+      // 1. Try primary Next Content navigation button IF enabled
       const nextSelectors = [
-        'button[aria-label="next content"]',
-        'button.navigation-btn-frwd',
-        '.navigation-btn-frwd',
-        '[mattooltip="Next Content"]',
-        'button[aria-label*="next" i]'
+        'button[aria-label="next content"]:not([disabled])',
+        'button.navigation-btn-frwd:not([disabled])',
+        '.navigation-btn-frwd:not([disabled])',
+        '[mattooltip="Next Content"]:not([disabled])',
+        'button[aria-label*="next" i]:not([disabled])'
       ];
 
       for (const sel of nextSelectors) {
         try {
           const btn = document.querySelector(sel);
-          if (btn && !btn.disabled && (btn.offsetWidth > 0 || btn.getClientRects().length > 0)) {
+          if (btn && !btn.disabled && !btn.classList.contains('mat-button-disabled') && (btn.offsetWidth > 0 || btn.getClientRects().length > 0)) {
             AutomatorCore.notify('Advancing via "Next Content" button...', 'info');
             await AutomatorCore.runInMainWorld('NEXT_CONTENT');
             try { btn.click(); } catch (e) {}
@@ -463,7 +518,12 @@
         } catch (e) {}
       }
 
-      // 2. Fallback: Check TOC in sidebar
+      // 2. Next Content is disabled (at end of module or on code slide) -> Jump to Next Module!
+      AutomatorCore.notify('Next button disabled (end of module reached). Jumping to next module in TOC...', 'info');
+      const moduleAdvanced = await this.advanceToNextModule();
+      if (moduleAdvanced) return true;
+
+      // 3. Fallback: Check TOC in sidebar
       return await this.advanceViaToc();
     },
 
