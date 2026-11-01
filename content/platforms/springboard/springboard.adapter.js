@@ -101,12 +101,82 @@
     },
 
     /**
+     * Ensure sidebar is switched away from "Zoiee Tutor" to "Contents" navigation
+     */
+    async ensureContentsTabActive() {
+      try {
+        const tabs = Array.from(document.querySelectorAll('div[role="tab"]'));
+        const contentsTab = tabs.find(t => (t.innerText || t.textContent || '').toLowerCase().includes('contents'));
+        if (contentsTab && !contentsTab.classList.contains('mat-tab-label-active')) {
+          AutomatorCore.notify('Switching sidebar from Zoiee Tutor to Contents navigation...', 'info');
+          contentsTab.click();
+          await DomUtils.sleep(600);
+        }
+      } catch (e) {}
+    },
+
+    /**
+     * Find and jump directly to the next incomplete unit in the TOC tree
+     * Skips already-completed units (done_all) and hands-on coding labs
+     */
+    async navigateToNextIncompleteUnit() {
+      await this.ensureContentsTabActive();
+
+      const treeNodes = Array.from(document.querySelectorAll('mat-tree-node'));
+      if (treeNodes.length === 0) {
+        return await this.advanceToNextUnit();
+      }
+
+      // 1. First, search forward from currently active unit
+      const activeIdx = treeNodes.findIndex(n => 
+        n.classList.contains('selected') || 
+        n.classList.contains('highlight-content') || 
+        n.getAttribute('aria-selected') === 'true'
+      );
+
+      const startIndex = activeIdx >= 0 ? activeIdx + 1 : 0;
+
+      // Scan all nodes (forward first, then wrap around from 0 if needed)
+      const scanOrder = [];
+      for (let i = startIndex; i < treeNodes.length; i++) scanOrder.push(i);
+      for (let i = 0; i < startIndex; i++) scanOrder.push(i);
+
+      for (const idx of scanOrder) {
+        const node = treeNodes[idx];
+        const isCompleted = node.querySelector('.completed-color') !== null || 
+                            node.innerHTML.includes('done_all') || 
+                            node.innerHTML.includes('completed-color');
+        const isFolder = node.getAttribute('level') === '0' || 
+                         node.querySelector('.toc-expand-icon') !== null || 
+                         node.innerHTML.includes('>folder</mat-icon>');
+        const isHandsOn = node.innerHTML.includes('>code</mat-icon>');
+
+        // Target: Incomplete, non-folder, non-hands-on unit
+        if (!isFolder && !isCompleted && !isHandsOn) {
+          const title = node.querySelector('.content-title')?.innerText?.trim() || `Unit ${idx}`;
+          AutomatorCore.notify(`🎯 Jumping directly to incomplete unit: "${title}"...`, 'info');
+          AutomatorCore.updateHUD(`Jumping: ${title}`, 50);
+
+          const clickable = node.querySelector('.content-title, .expand-button') || node;
+          clickable.click();
+          await DomUtils.sleep(2500);
+          return true;
+        }
+      }
+
+      return false; // All eligible units completed!
+    },
+
+    /**
      * Master Viewer Completer Loop
-     * Handles: Hands-on Labs -> Videos -> Quizzes -> Mark Complete Dialog -> Next Unit
+     * Focuses ONLY on incomplete units, automatically skipping completed & broken hands-on slides
      */
     async runCourseCompleter() {
-      AutomatorCore.notify('Infosys Springboard Master Completer running...', 'info');
+      AutomatorCore.notify('Infosys Springboard Smart Completer running...', 'info');
       AutomatorCore.showHUD('Infosys Springboard: Completing units...');
+
+      // Always ensure sidebar is on Contents tab
+      await this.ensureContentsTabActive();
 
       const maxSteps = 150;
       let step = 0;
@@ -114,46 +184,61 @@
       while (AutomatorCore.isRunning && step < maxSteps) {
         step++;
 
+        await this.ensureContentsTabActive();
+
         // 1. Identify current unit title
         const unitTitleEl = document.querySelector('.content-title, .collection-title, h1, .header-title');
         const unitTitle = unitTitleEl ? unitTitleEl.innerText.replace(/[\n\r]+/g, ' ').trim() : `Unit ${step}`;
-        AutomatorCore.notify(`[Step ${step}] Processing: "${unitTitle}"`, 'info');
-        AutomatorCore.updateHUD(`Processing: ${unitTitle}`, 50);
+        AutomatorCore.notify(`[Step ${step}] Current slide: "${unitTitle}"`, 'info');
 
-        // 2. Handle Hands-on coding lab if present (Skip remote sandbox hang)
-        const isHandsOn = await this.handleHandsOnIfPresent();
-        if (isHandsOn) {
-          const advanced = await this.advanceToNextUnit();
-          if (!advanced) {
-            AutomatorCore.notify('🎉 Course completed or no more units available!', 'info');
+        // 2. Check if current slide is hands-on OR already completed
+        const isHandsOn = window.location.href.includes('/viewer/hands-on/') ||
+                          document.querySelector('ws-viewer-plugin-hands-on, #focus_execute_handson, #focus_submit_handson');
+
+        const activeNode = document.querySelector('mat-tree-node.selected, mat-tree-node.highlight-content, mat-tree-node[aria-selected="true"]');
+        const isAlreadyComplete = activeNode && (
+          activeNode.querySelector('.completed-color') !== null || 
+          activeNode.innerHTML.includes('done_all') || 
+          activeNode.innerHTML.includes('completed-color')
+        );
+
+        if (isHandsOn || isAlreadyComplete) {
+          if (isHandsOn) {
+            AutomatorCore.notify(`⏩ Hands-on lab "${unitTitle}" skipped (remote sandbox broken).`, 'info');
+          } else {
+            AutomatorCore.notify(`✅ Unit "${unitTitle}" is ALREADY completed! Jumping to next incomplete...`, 'info');
+          }
+
+          const jumped = await this.navigateToNextIncompleteUnit();
+          if (!jumped) {
+            AutomatorCore.notify('🎉 All playable units completed!', 'info');
             AutomatorCore.updateHUD('🎉 Course Completed!', 100);
-            AutomatorCore.stop('🎉 Course Completed!');
+            AutomatorCore.stop('🎉 Course Completed! All incomplete units finished.');
             break;
           }
-          await DomUtils.sleep(2000);
           continue;
         }
 
-        // 3. Start video playback if present so Mark as Complete unlocks immediately
+        // 3. Current unit is INCOMPLETE: Complete it!
+        AutomatorCore.updateHUD(`Completing: ${unitTitle}`, 60);
+
+        // A. Start video playback if present so Mark as Complete unlocks immediately
         await this.handleVideoIfPresent();
 
-        // 4. Handle Assessment / Quiz options if present
+        // B. Handle Assessment / Quiz options if present
         await this.handleAssessmentIfPresent();
 
-        // 5. Instantly trigger & confirm "Mark as Complete" dialog
+        // C. Instantly trigger & confirm "Mark as Complete" dialog
         await this.markCurrentUnitComplete();
 
-        // 6. Advance to Next Unit
-        const advanced = await this.advanceToNextUnit();
+        // D. Jump directly to the next incomplete unit in TOC!
+        const advanced = await this.navigateToNextIncompleteUnit();
         if (!advanced) {
-          AutomatorCore.notify('🎉 Course completed or no more units available!', 'info');
+          AutomatorCore.notify('🎉 Course completed! All eligible units marked complete.', 'info');
           AutomatorCore.updateHUD('🎉 Course Completed!', 100);
           AutomatorCore.stop('🎉 Course Completed!');
           break;
         }
-
-        // Wait briefly for next unit to render cleanly
-        await DomUtils.sleep(2000);
       }
     },
 
