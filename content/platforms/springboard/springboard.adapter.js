@@ -150,30 +150,32 @@
       if (submitBtn || verifyBtn || executeBtn) {
         AutomatorCore.notify('Hands-on coding lab detected!', 'info');
 
-        // 1. Run / Verify code first
+        // 1. Run / Verify code first in MAIN world (Zone.js safe)
         if (verifyBtn && !verifyBtn.disabled) {
           AutomatorCore.notify('Clicking "Verify" code test cases...', 'info');
-          this.triggerClick(verifyBtn);
+          await AutomatorCore.runInMainWorld('VERIFY_HANDSON');
           await DomUtils.sleep(3000);
         } else if (executeBtn && !executeBtn.disabled) {
           AutomatorCore.notify('Clicking "Run" code...', 'info');
-          this.triggerClick(executeBtn);
+          try { executeBtn.click(); } catch (e) {}
           await DomUtils.sleep(2000);
         }
 
-        // 2. Click Submit
+        // 2. Click Submit in MAIN world so Angular's onSubmit() is triggered directly
         if (submitBtn && !submitBtn.disabled) {
           AutomatorCore.notify('Clicking "Submit" on hands-on exercise...', 'info');
-          this.triggerClick(submitBtn);
-          await DomUtils.sleep(3000);
+          await AutomatorCore.runInMainWorld('SUBMIT_HANDSON');
+          // Fallback direct click
+          try { submitBtn.click(); } catch (e) {}
+
+          // Wait 4 seconds for sandbox compilation & submission
+          await DomUtils.sleep(4000);
 
           // Check if any confirmation dialog appears
-          const dialogConfirm = await this.waitForConfirmDialog(2500);
-          if (dialogConfirm) {
-            this.triggerClick(dialogConfirm);
-            await DomUtils.sleep(1500);
-          }
-          AutomatorCore.notify('Hands-on exercise successfully submitted!', 'info');
+          await AutomatorCore.runInMainWorld('CONFIRM_MARK_COMPLETE');
+          await DomUtils.sleep(1500);
+
+          AutomatorCore.notify('Hands-on exercise submitted!', 'info');
         }
 
         await DomUtils.sleep(1500);
@@ -215,7 +217,7 @@
       // Video.js Done button if visible
       const doneBtn = document.querySelector('button.vjs-done-button');
       if (doneBtn && !doneBtn.disabled) {
-        this.triggerClick(doneBtn);
+        try { doneBtn.click(); } catch (e) {}
         await DomUtils.sleep(1000);
       }
     },
@@ -232,7 +234,7 @@
       quizOptions.forEach(opt => {
         try {
           if (!opt.classList.contains('mat-radio-checked') && !opt.classList.contains('mat-checkbox-checked')) {
-            this.triggerClick(opt);
+            opt.click();
           }
         } catch (e) {}
       });
@@ -247,25 +249,26 @@
       });
 
       if (submitBtn && !submitBtn.disabled) {
-        this.triggerClick(submitBtn);
+        try { submitBtn.click(); } catch (e) {}
         await DomUtils.sleep(1200);
       }
     },
 
     /**
-     * Click Wingspan's "Mark as Complete" button AND confirm the popup modal dialog
+     * Click Wingspan's "Mark as Complete" button AND confirm the popup modal dialog in MAIN world
      */
     async markCurrentUnitComplete() {
       // 1. Check if a confirmation dialog is already open on screen
       let confirmBtn = await this.waitForConfirmDialog(1000);
       if (confirmBtn) {
         AutomatorCore.notify('Confirming existing "Mark as complete" dialog...', 'info');
-        this.triggerClick(confirmBtn);
+        await AutomatorCore.runInMainWorld('CONFIRM_MARK_COMPLETE');
+        try { confirmBtn.click(); } catch (e) {}
         await DomUtils.sleep(1500);
         return true;
       }
 
-      // 2. Click the trigger button in the viewer
+      // 2. Click the trigger button in the viewer (both MAIN world & DOM)
       const markSelectors = [
         'button[aria-label="mark as complete"]',
         'button.mark-as-complete-mini',
@@ -285,13 +288,15 @@
 
       if (triggerBtn) {
         AutomatorCore.notify('Clicking "Mark as Complete" icon...', 'info');
-        this.triggerClick(triggerBtn);
+        await AutomatorCore.runInMainWorld('TRIGGER_MARK_COMPLETE');
+        try { triggerBtn.click(); } catch (e) {}
 
-        // 3. Wait up to 3 seconds for the Angular Material confirmation dialog to render
-        confirmBtn = await this.waitForConfirmDialog(3000);
+        // 3. Wait up to 3.5 seconds for the Angular Material confirmation dialog to render
+        confirmBtn = await this.waitForConfirmDialog(3500);
         if (confirmBtn) {
           AutomatorCore.notify('Confirming "Mark as complete" dialog...', 'info');
-          this.triggerClick(confirmBtn);
+          await AutomatorCore.runInMainWorld('CONFIRM_MARK_COMPLETE');
+          try { confirmBtn.click(); } catch (e) {}
           await DomUtils.sleep(2000);
           return true;
         } else {
@@ -330,13 +335,10 @@
      */
     async advanceToNextUnit() {
       // If any lingering dialog exists, dismiss or confirm it
-      const lingeringConfirm = await this.waitForConfirmDialog(500);
-      if (lingeringConfirm) {
-        this.triggerClick(lingeringConfirm);
-        await DomUtils.sleep(1000);
-      }
+      await AutomatorCore.runInMainWorld('CONFIRM_MARK_COMPLETE');
+      await DomUtils.sleep(500);
 
-      // 1. Try primary Next Content navigation button
+      // 1. Try primary Next Content navigation button in MAIN world & DOM
       const nextSelectors = [
         'button[aria-label="next content"]',
         'button.navigation-btn-frwd',
@@ -350,7 +352,8 @@
           const btn = document.querySelector(sel);
           if (btn && btn.offsetParent !== null && !btn.disabled) {
             AutomatorCore.notify('Advancing via "Next Content" button...', 'info');
-            this.triggerClick(btn);
+            await AutomatorCore.runInMainWorld('NEXT_CONTENT');
+            try { btn.click(); } catch (e) {}
             return true;
           }
         } catch (e) {}
@@ -365,7 +368,7 @@
         const tabs = Array.from(document.querySelectorAll('div[role="tab"]'));
         const contentsTab = tabs.find(t => (t.innerText || '').toLowerCase().includes('contents'));
         if (contentsTab && !contentsTab.classList.contains('mat-tab-label-active')) {
-          this.triggerClick(contentsTab);
+          contentsTab.click();
           await DomUtils.sleep(1000);
         }
 
@@ -376,7 +379,7 @@
           const nextUnit = units[activeUnitIndex + 1];
           const nextTitle = nextUnit.querySelector('.content-title')?.innerText?.trim() || 'Next Unit';
           AutomatorCore.notify(`Clicking next unit in TOC: "${nextTitle}"...`, 'info');
-          this.triggerClick(nextUnit);
+          nextUnit.click();
           return true;
         }
       } catch (e) {}

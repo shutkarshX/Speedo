@@ -145,6 +145,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             } else if (typeof window.next_button === 'function') {
               window.next_button();
             }
+          } else if (command === 'SUBMIT_HANDSON') {
+            const btn = document.getElementById('focus_submit_handson') || 
+                        document.querySelector('button[aria-label="submit code pane text"]');
+            if (btn) {
+              console.log('[MAIN World] Clicking Submit on Hands-on exercise');
+              btn.click();
+            }
+          } else if (command === 'VERIFY_HANDSON') {
+            const btn = document.getElementById('focus_verify_handson') || 
+                        document.querySelector('button[aria-label="verify code pane text"]');
+            if (btn) {
+              console.log('[MAIN World] Clicking Verify on Hands-on exercise');
+              btn.click();
+            }
+          } else if (command === 'TRIGGER_MARK_COMPLETE') {
+            const btn = document.querySelector('button[aria-label="mark as complete"], button.mark-as-complete-mini');
+            if (btn) {
+              console.log('[MAIN World] Triggering Mark as Complete icon');
+              btn.click();
+            }
+          } else if (command === 'CONFIRM_MARK_COMPLETE') {
+            const dialog = document.querySelector('ws-widget-mark-as-complete-dialog, mat-dialog-container');
+            if (dialog) {
+              const btns = Array.from(dialog.querySelectorAll('button'));
+              const confirm = btns.find(b => {
+                const txt = (b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim().toLowerCase();
+                return (txt.includes('mark as complete') || txt.includes('yes') || txt.includes('confirm') || txt.includes('ok')) && 
+                       !txt.includes('cancel');
+              });
+              if (confirm) {
+                console.log('[MAIN World] Confirming Mark as Complete dialog');
+                confirm.click();
+              }
+            }
+          } else if (command === 'NEXT_CONTENT') {
+            const btn = document.querySelector('button[aria-label="next content"], button.navigation-btn-frwd, .navigation-btn-frwd');
+            if (btn) {
+              console.log('[MAIN World] Clicking Next Content button');
+              btn.click();
+            }
           } else if (typeof command === 'string' && command.startsWith('GET_SUB_DATA:')) {
             const prodId = command.split(':')[1];
             if (typeof window.getsubdata === 'function') {
