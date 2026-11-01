@@ -15,7 +15,9 @@ chrome.runtime.onInstalled.addListener(async () => {
     const tabs = await chrome.tabs.query({
       url: [
         '*://*.futureskillsprime.in/*',
-        '*://futureskillsprime.in/*'
+        '*://futureskillsprime.in/*',
+        '*://*.onwingspan.com/*',
+        '*://*.infyspringboard.onwingspan.com/*'
       ]
     });
 
@@ -42,6 +44,7 @@ chrome.runtime.onInstalled.addListener(async () => {
             'content/core/platform-registry.js',
             'content/platforms/generic/generic.adapter.js',
             'content/platforms/futureskills/futureskills.adapter.js',
+            'content/platforms/springboard/springboard.adapter.js',
             'content/content.js'
           ]
         });

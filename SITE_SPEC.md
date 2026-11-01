@@ -76,3 +76,27 @@ FutureSkills Prime marks content complete in two ways:
 4. **Watchdogs & Anti-Hang Guards:**
    - `waitForSpinnerToClear(5000)`: If loading spinner (`.mainLoader`, `.loader_wrapper`) hangs >5s, triggers auto-recovery reload with `autoResumeCourse` state.
    - Safe warning modal dismissal: hides `#markWarningPopup` and `#overlay` via CSS, never clicks `.ApplyButton` (which closes the course window).
+
+---
+
+## 6. Platform: Infosys Springboard (Wingspan / Lex LMS)
+- **Domain:** `https://infyspringboard.onwingspan.com`
+- **Course Overview / TOC:** `/web/en/app/toc/<lex_auth_id>/overview`
+- **Content Viewer:** `/web/en/viewer/<content_type>/<lex_auth_id>?collectionType=Course&collectionId=<lex_auth_id>&pathId=<lex_auth_id>`
+- **Example Course:** *Computational Problem Solving* (`lex_auth_0131149320724398081685_shared`)
+
+### Viewer Component Selectors:
+1. **Video Player:**
+   - Tech: Video.js HTML5 video
+   - Selector: `video.vjs-tech, #vjs_video_3_html5_api`
+   - Complete Action: Fast-forward to `duration - 0.2`, dispatch `ended`, click `button.vjs-done-button`
+2. **Mark as Complete Button:**
+   - Selector: `button[aria-label="mark as complete"], button.mark-as-complete-mini, [mattooltip="Mark as Complete"]`
+   - Icon: `<mat-icon>done_all</mat-icon>`
+3. **Next Content Navigation Button:**
+   - Selector: `button[aria-label="next content"], button.navigation-btn-frwd, .navigation-btn-frwd`
+   - Icon: `<mat-icon>arrow_forward_ios</mat-icon>`
+4. **Table of Contents (Sidebar):**
+   - Tab: `div[role="tab"]` ("Contents")
+   - Container: `ws-viewer-toc .toc-scrollable-content`
+   - Units: `.flat-list` with `.content-title`

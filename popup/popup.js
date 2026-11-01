@@ -62,6 +62,7 @@ async function sendTabMessage(action, payload = {}) {
             'content/core/platform-registry.js',
             'content/platforms/generic/generic.adapter.js',
             'content/platforms/futureskills/futureskills.adapter.js',
+            'content/platforms/springboard/springboard.adapter.js',
             'content/content.js'
           ]
         });
