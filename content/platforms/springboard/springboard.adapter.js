@@ -169,18 +169,23 @@
         // 1. Keep sidebar on Contents tab so TOC is live
         await this.ensureContentsTabActive();
 
-        // 2. Identify current unit
+        // 2. Identify current unit and module
         const unitTitleEl = document.querySelector('.content-title, .collection-title, h1, .header-title');
         const unitTitle = unitTitleEl ? unitTitleEl.innerText.replace(/[\n\r]+/g, ' ').trim() : `Unit ${step}`;
-        AutomatorCore.notify(`[Step ${step}] Slide: "${unitTitle}"`, 'info');
+        
+        const expandedFolderEl = document.querySelector('mat-tree-node[level="0"][aria-expanded="true"] .content-title, .breadcrumb-item');
+        const moduleTitle = expandedFolderEl ? expandedFolderEl.innerText.replace(/[\n\r]+/g, ' ').trim() : '';
+        const fullDisplayTitle = moduleTitle ? `[${moduleTitle}] ${unitTitle}` : unitTitle;
+
+        AutomatorCore.notify(`[Step ${step}] ${fullDisplayTitle}`, 'info');
 
         // 3. Hands-on coding lab check (skip remote sandbox hang)
         const isHandsOn = window.location.href.includes('/viewer/hands-on/') ||
                           document.querySelector('ws-viewer-plugin-hands-on, #focus_execute_handson, #focus_submit_handson');
 
         if (isHandsOn) {
-          AutomatorCore.notify(`⏩ Hands-on lab "${unitTitle}" skipped (remote sandbox broken).`, 'info');
-          AutomatorCore.updateHUD(`⏩ Skipping: ${unitTitle}`, 50);
+          AutomatorCore.notify(`⏩ Hands-on lab "${fullDisplayTitle}" skipped (remote sandbox broken).`, 'info');
+          AutomatorCore.updateHUD(`⏩ Skipping: ${fullDisplayTitle}`, 50);
           const advanced = await this.advanceToNextUnit();
           if (!advanced) {
             AutomatorCore.notify('🎉 Course completed or no more units available!', 'info');
@@ -194,8 +199,8 @@
 
         // 4. Check if current slide is ALREADY completed
         if (this.isCurrentUnitCompleted()) {
-          AutomatorCore.notify(`✅ Unit "${unitTitle}" is already completed! Advancing...`, 'info');
-          AutomatorCore.updateHUD(`✅ Completed: ${unitTitle}`, 50);
+          AutomatorCore.notify(`✅ Unit "${fullDisplayTitle}" is already completed! Advancing...`, 'info');
+          AutomatorCore.updateHUD(`✅ Done: ${fullDisplayTitle}`, 50);
           const advanced = await this.advanceToNextUnit();
           if (!advanced) {
             AutomatorCore.notify('🎉 Course completed or no more units available!', 'info');
@@ -208,8 +213,8 @@
         }
 
         // 5. Unit is INCOMPLETE: Complete it!
-        AutomatorCore.notify(`⚡ Completing: "${unitTitle}"...`, 'info');
-        AutomatorCore.updateHUD(`Completing: ${unitTitle}`, 70);
+        AutomatorCore.notify(`⚡ Completing: "${fullDisplayTitle}"...`, 'info');
+        AutomatorCore.updateHUD(`Completing: ${fullDisplayTitle}`, 70);
 
         // A. Start video if present so Mark as Complete unlocks
         await this.handleVideoIfPresent();
