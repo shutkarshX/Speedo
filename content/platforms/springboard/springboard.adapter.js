@@ -91,7 +91,7 @@
 
     /**
      * Master Viewer Completer Loop
-     * Progresses sequentially through units: Video -> Assessment -> Mark Complete -> Next
+     * Progresses sequentially through units: Video -> Assessment -> Mark Complete Dialog -> Next
      */
     async runCourseCompleter() {
       AutomatorCore.notify('Infosys Springboard Master Completer running...', 'info');
@@ -106,8 +106,8 @@
         // 1. Identify current unit title
         const unitTitleEl = document.querySelector('.content-title, .collection-title, h1, .header-title');
         const unitTitle = unitTitleEl ? unitTitleEl.innerText.replace(/[\n\r]+/g, ' ').trim() : `Unit ${step}`;
-        AutomatorCore.notify(`[Step ${step}] Completing: "${unitTitle}"`, 'info');
-        AutomatorCore.updateHUD(`Completing: ${unitTitle}`, 50);
+        AutomatorCore.notify(`[Step ${step}] Processing: "${unitTitle}"`, 'info');
+        AutomatorCore.updateHUD(`Processing: ${unitTitle}`, 50);
 
         // 2. Handle Video if present
         await this.handleVideoIfPresent();
@@ -115,7 +115,7 @@
         // 3. Handle Assessment / Quiz options if present
         await this.handleAssessmentIfPresent();
 
-        // 4. Click "Mark as Complete" button
+        // 4. Click "Mark as Complete" AND CONFIRM the Wingspan dialog!
         await this.markCurrentUnitComplete();
 
         // 5. Advance to Next Unit
@@ -127,7 +127,7 @@
           break;
         }
 
-        // Wait for next unit to render
+        // Wait for next unit to render cleanly
         await DomUtils.sleep(3000);
       }
     },
@@ -144,17 +144,24 @@
       for (const vid of videos) {
         try {
           vid.muted = true;
+          if (vid.paused) {
+            await vid.play().catch(() => {});
+          }
           if (vid.duration && !vid.ended) {
             vid.currentTime = Math.max(0, vid.duration - 0.2);
           }
-          vid.dispatchEvent(new Event('ended'));
           vid.dispatchEvent(new Event('timeupdate'));
+          vid.dispatchEvent(new Event('ended'));
+          if (typeof vid.onended === 'function') vid.onended();
         } catch (e) {}
       }
 
+      // Also trigger Video.js instance directly in page's MAIN world
+      await AutomatorCore.runInMainWorld('VIDEO_ENDED');
+
       await DomUtils.sleep(1500);
 
-      // Video.js Done button
+      // Video.js Done button if visible
       const doneBtn = document.querySelector('button.vjs-done-button');
       if (doneBtn && !doneBtn.disabled) {
         DomUtils.simulateClick(doneBtn);
@@ -171,7 +178,6 @@
 
       AutomatorCore.notify('Assessment options detected. Selecting answers...', 'info');
 
-      // Select option
       quizOptions.forEach(opt => {
         try {
           if (!opt.classList.contains('mat-radio-checked') && !opt.classList.contains('mat-checkbox-checked')) {
@@ -197,41 +203,57 @@
     },
 
     /**
-     * Click Wingspan's "Mark as Complete" button
+     * Click Wingspan's "Mark as Complete" button AND confirm the popup modal dialog
      */
     async markCurrentUnitComplete() {
-      const selectors = [
+      // 1. First check if a confirmation dialog is already open on screen
+      let confirmBtn = document.querySelector('ws-widget-mark-as-complete-dialog button[aria-label="Mark as Complete button"], ws-widget-mark-as-complete-dialog button.mat-raised-button.mat-primary');
+      if (confirmBtn) {
+        AutomatorCore.notify('Confirming existing "Mark as complete" dialog...', 'info');
+        DomUtils.simulateClick(confirmBtn);
+        await DomUtils.sleep(1500);
+        return true;
+      }
+
+      // 2. Click the trigger button in the viewer
+      const markSelectors = [
         'button[aria-label="mark as complete"]',
         'button.mark-as-complete-mini',
-        '[mattooltip="Mark as Complete"]',
-        'button:has-text("Mark as Complete")'
+        '[mattooltip="Mark as Complete"]'
       ];
 
-      for (const sel of selectors) {
+      let triggerBtn = null;
+      for (const sel of markSelectors) {
         try {
           const btn = document.querySelector(sel);
           if (btn && btn.offsetParent !== null && !btn.disabled) {
-            AutomatorCore.notify('Clicking "Mark as Complete"...', 'info');
-            DomUtils.simulateClick(btn);
-            await DomUtils.sleep(1500);
-            return true;
+            triggerBtn = btn;
+            break;
           }
         } catch (e) {}
       }
 
-      // Check button by text/aria
-      const allButtons = Array.from(document.querySelectorAll('button, a'));
-      const found = allButtons.find(b => {
-        if (!b.offsetParent) return false;
-        const txt = (b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim().toLowerCase();
-        return txt.includes('mark as complete') || txt === 'done_all';
-      });
+      if (triggerBtn) {
+        AutomatorCore.notify('Clicking "Mark as Complete" icon...', 'info');
+        DomUtils.simulateClick(triggerBtn);
+        await DomUtils.sleep(800);
 
-      if (found && !found.disabled) {
-        AutomatorCore.notify('Clicking "Mark as Complete"...', 'info');
-        DomUtils.simulateClick(found);
-        await DomUtils.sleep(1500);
-        return true;
+        // 3. Confirm in the Wingspan dialog: <ws-widget-mark-as-complete-dialog>
+        confirmBtn = document.querySelector('ws-widget-mark-as-complete-dialog button[aria-label="Mark as Complete button"], ws-widget-mark-as-complete-dialog button.mat-raised-button.mat-primary');
+        if (confirmBtn) {
+          AutomatorCore.notify('Confirming "Mark as complete" dialog...', 'info');
+          DomUtils.simulateClick(confirmBtn);
+          await DomUtils.sleep(2000);
+          return true;
+        } else {
+          AutomatorCore.notify('Confirmation dialog button not detected, checking for generic dialog...', 'warn');
+          const anyDialogBtn = document.querySelector('.mat-dialog-actions button.mat-raised-button.mat-primary');
+          if (anyDialogBtn) {
+            DomUtils.simulateClick(anyDialogBtn);
+            await DomUtils.sleep(1500);
+            return true;
+          }
+        }
       }
 
       return false;
@@ -241,6 +263,13 @@
      * Click Next Content button or advance via TOC sidebar
      */
     async advanceToNextUnit() {
+      // If any lingering dialog exists, dismiss or confirm it
+      const lingeringConfirm = document.querySelector('ws-widget-mark-as-complete-dialog button[aria-label="Mark as Complete button"]');
+      if (lingeringConfirm) {
+        DomUtils.simulateClick(lingeringConfirm);
+        await DomUtils.sleep(1000);
+      }
+
       // 1. Try primary Next Content navigation button
       const nextSelectors = [
         'button[aria-label="next content"]',

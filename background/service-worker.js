@@ -112,6 +112,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }
 
           if (command === 'VIDEO_ENDED') {
+            if (window.videojs && typeof window.videojs.getPlayers === 'function') {
+              try {
+                Object.values(window.videojs.getPlayers()).forEach(p => {
+                  if (p && !p.isDisposed()) {
+                    p.muted(true);
+                    if (p.duration && p.duration()) {
+                      p.currentTime(p.duration() - 0.1);
+                    }
+                    p.trigger('timeupdate');
+                    p.trigger('ended');
+                  }
+                });
+              } catch (e) {}
+            }
             if (typeof window.on_video_ended === 'function') {
               window.on_video_ended();
             } else if (typeof window.markings === 'function') {
