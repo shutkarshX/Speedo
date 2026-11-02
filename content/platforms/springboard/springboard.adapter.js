@@ -46,6 +46,12 @@
              window.location.pathname.includes('/contest/');
     },
 
+    isIapViewerPage() {
+      return window.location.pathname.includes('/viewer/iap/') || 
+             window.location.href.includes('/viewer/iap/') ||
+             document.querySelector('iframe#iap-iframe, iframe[src*="lex-iap"], iframe[src*="/contest/"]') !== null;
+    },
+
     async init() {
       console.log('[Springboard Adapter] Initialized on Wingspan platform:', window.location.pathname);
 
@@ -83,15 +89,39 @@
       await chrome.storage.local.set({ springboardRunning: true });
       chrome.runtime.sendMessage({ action: 'PREWARM_AI_TAB' }).catch(() => {});
 
-      AutomatorCore.showHUD('Analyzing Springboard Course...');
-      AutomatorCore.notify('Infosys Springboard Automator started.', 'info');
-
       try {
+        // Direct execution inside IAP Contest iframe
         if (this.isIapContestPage()) {
+          AutomatorCore.showHUD('SPEEDO Assessment Solver Active');
           AutomatorCore.notify('Autonomous IAP Contest Runner initialized inside iframe.', 'info');
           await this.runIapContestRunner();
           return;
         }
+
+        // Parent frame on IAP Assessment slide: Completely halt old course completer!
+        if (this.isIapViewerPage()) {
+          AutomatorCore.removeHUD(); // Avoid duplicate HUD in parent window
+          AutomatorCore.notify('Assessment viewer active. Pausing course completer and delegating to solver...', 'info');
+
+          const iapIframe = document.querySelector('iframe#iap-iframe, iframe[src*="lex-iap"], iframe[src*="/contest/"]');
+          if (iapIframe && iapIframe.contentWindow) {
+            try {
+              iapIframe.contentWindow.postMessage({ type: 'SPEEDO_START_IAP' }, '*');
+            } catch (e) {}
+          }
+
+          // Wait for IAP assessment in child iframe to complete 100%
+          await this.waitForIapAssessmentCompletion();
+
+          if (AutomatorCore.isRunning) {
+            await this.markCurrentUnitComplete();
+            await this.advanceToNextUnit();
+          }
+          return;
+        }
+
+        AutomatorCore.showHUD('Analyzing Springboard Course...');
+        AutomatorCore.notify('Infosys Springboard Automator started.', 'info');
 
         if (this.isTocPage()) {
           AutomatorCore.notify('Course Table of Contents detected. Launching viewer...', 'info');
@@ -485,16 +515,64 @@
       return false;
     },
 
+    /**
+     * Resolves the left-hand question palette container (where circles 1..20 reside)
+     */
+    getQuestionPaletteContainer(root = document) {
+      const headings = Array.from(root.querySelectorAll('h1, h2, h3, h4, h5, div, span, p')).filter(el => {
+        if (el.children.length > 2) return false;
+        const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+        return txt === 'assessment';
+      });
+
+      for (const h of headings) {
+        const sidebar = h.closest('aside, nav, .sidebar, div[class*="sidebar"], div[class*="palette"], div[class*="nav"]') || 
+                        h.parentElement;
+        if (sidebar && sidebar.querySelectorAll('*').length >= 5) {
+          return sidebar;
+        }
+      }
+
+      const containers = Array.from(root.querySelectorAll('div, ul, nav, aside')).filter(c => {
+        const rect = c.getBoundingClientRect();
+        if (rect.left > 350 || rect.width === 0 || rect.width > 400) return false;
+        const txt = c.innerText || '';
+        return txt.includes('1') && txt.includes('2') && txt.includes('3');
+      });
+
+      if (containers.length > 0) {
+        containers.sort((a, b) => a.querySelectorAll('*').length - b.querySelectorAll('*').length);
+        return containers[0];
+      }
+
+      return null;
+    },
+
+    /**
+     * Click question circle qNum strictly in the question palette on the left
+     */
     clickQuestionNumber(qNum, root = document) {
       const targetStr = String(qNum);
-      const candidates = Array.from(root.querySelectorAll('button, a, div, span, li, [role="button"]')).filter(el => {
+      const paletteContainer = this.getQuestionPaletteContainer(root);
+      const searchRoot = paletteContainer || root;
+
+      const allElements = Array.from(searchRoot.querySelectorAll('button, a, div, span, li, [role="button"]'));
+      const candidates = allElements.filter(el => {
         if (el.children.length > 1) return false;
         const txt = (el.innerText || el.textContent || '').trim();
-        return txt === targetStr && (el.offsetWidth > 0 || el.getClientRects().length > 0);
+        if (txt !== targetStr) return false;
+
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return false;
+
+        // Discard any code snippet or question option text in the main pane (rect.left >= 350)
+        if (rect.left >= 350) return false;
+
+        return true;
       });
 
       if (candidates.length > 0) {
-        const btn = candidates[0].closest('button, a, [role="button"], div') || candidates[0];
+        const btn = candidates[0].closest('button, a, [role="button"]') || candidates[0];
         try { btn.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {}
         ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
           btn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
@@ -508,7 +586,7 @@
     /**
      * Solve a single question via:
      * 1. Intercepted Network Answer / Local QA Cache
-     * 2. Direct In-Browser Gemini AI Solver
+     * 2. Direct In-Browser Gemini AI Solver (with 4s timeout)
      * 3. Exploratory Selection (first option)
      */
     async solveSingleQuestion(container = document) {
@@ -564,16 +642,19 @@
         }
       }
 
-      // Method 3: Direct In-Browser Gemini AI Solver
+      // Method 3: Direct In-Browser Gemini AI Solver (bounded with 4s timeout)
       if (rawQuestion && optionTexts.length > 0) {
         try {
           AutomatorCore.notify('Consulting AI solver for correct answer...', 'info');
-          const aiRes = await new Promise(resolve => {
-            chrome.runtime.sendMessage({
-              action: 'SOLVE_WITH_AI',
-              payload: { question: rawQuestion, options: optionTexts, isMulti }
-            }, resolve);
-          });
+          const aiRes = await Promise.race([
+            new Promise(resolve => {
+              chrome.runtime.sendMessage({
+                action: 'SOLVE_WITH_AI',
+                payload: { question: rawQuestion, options: optionTexts, isMulti }
+              }, resolve);
+            }),
+            new Promise(resolve => setTimeout(() => resolve({ success: false, timeout: true }), 4000))
+          ]);
 
           if (aiRes && aiRes.success) {
             const methodLabel = aiRes.method === 'web_tab' ? 'Gemini Web Tab' : 'Gemini AI';
