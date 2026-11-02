@@ -48,6 +48,24 @@
 
     async init() {
       console.log('[Springboard Adapter] Initialized on Wingspan platform:', window.location.pathname);
+
+      // Listen for parent frame IAP start instruction
+      window.addEventListener('message', (event) => {
+        if (event.data?.type === 'SPEEDO_START_IAP') {
+          console.log('[Springboard Adapter] Received SPEEDO_START_IAP instruction from parent frame.');
+          this.runIapContestRunner();
+        }
+      });
+
+      // Auto-engage immediately when mounted directly inside IAP contest iframe
+      if (this.isIapContestPage()) {
+        AutomatorCore.notify('Autonomous IAP Contest Runner auto-engaging inside contest iframe.', 'info');
+        setTimeout(() => {
+          this.runIapContestRunner();
+        }, 1200);
+        return;
+      }
+
       try {
         const data = await chrome.storage.local.get(['springboardRunning']);
         if (data.springboardRunning) {
@@ -293,6 +311,11 @@
         const iapIframe = document.querySelector('iframe#iap-iframe, iframe[src*="lex-iap"], iframe[src*="/contest/"]');
         if (iapIframe) {
           AutomatorCore.notify('IAP Assessment frame detected. Waiting for assessment solver...', 'info');
+          try {
+            if (iapIframe.contentWindow) {
+              iapIframe.contentWindow.postMessage({ type: 'SPEEDO_START_IAP' }, '*');
+            }
+          } catch (e) {}
           await this.waitForIapAssessmentCompletion();
           if (!AutomatorCore.isRunning) break;
         }
@@ -586,8 +609,11 @@
      * ("Accessible only on fullscreen. Click Okay to continue")
      */
     async dismissProctoringFullscreenWarning() {
-      const warningHolders = document.querySelectorAll('.proctoring-warning-holder, .proctoring-warning');
+      const warningHolders = Array.from(document.querySelectorAll('.proctoring-warning-holder, .proctoring-warning')).filter(el => {
+        return el.offsetWidth > 0 && el.offsetHeight > 0 && window.getComputedStyle(el).display !== 'none';
+      });
       const okayBtns = Array.from(document.querySelectorAll('button, .mat-flat-button')).filter(b => {
+        if (b.offsetWidth === 0 || b.disabled) return false;
         const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
         return txt === 'okay' || txt === 'ok';
       });
@@ -608,7 +634,8 @@
         }
 
         warningHolders.forEach(holder => {
-          holder.style.display = 'none';
+          holder.style.setProperty('display', 'none', 'important');
+          holder.remove();
         });
 
         await DomUtils.sleep(250);
@@ -718,6 +745,14 @@
 
         // Auto-dismiss proctoring warning in parent frame
         await this.dismissProctoringFullscreenWarning();
+
+        // Ensure child IAP contest frame is executing
+        try {
+          const frame = document.querySelector('iframe#iap-iframe, iframe[src*="lex-iap"], iframe[src*="/contest/"]');
+          if (frame && frame.contentWindow) {
+            frame.contentWindow.postMessage({ type: 'SPEEDO_START_IAP' }, '*');
+          }
+        } catch (e) {}
 
         if (window.__SPEEDO_IAP_FINISHED__) {
           AutomatorCore.notify('IAP assessment finished.', 'info');

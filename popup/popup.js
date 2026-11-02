@@ -152,9 +152,27 @@ if (btnCapture) {
 }
 
 btnStart.addEventListener('click', async () => {
-  appendLog('Dispatching start instruction...', 'info');
+  appendLog('Dispatching start instruction (all frames)...', 'info');
   chrome.runtime.sendMessage({ action: 'PREWARM_AI_TAB' }).catch(() => {});
   updateUI(true);
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab && tab.id) {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id, allFrames: true },
+        func: () => {
+          if (window.AutomatorCore) {
+            const platform = window.PlatformRegistry ? window.PlatformRegistry.detectPlatform() : null;
+            if (platform && typeof platform.start === 'function') {
+              platform.start();
+            }
+          }
+        }
+      }).catch(() => {});
+    }
+  } catch (e) {}
+
   const res = await sendTabMessage('START_AUTOMATION');
   if (!res) {
     updateUI(false);

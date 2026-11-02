@@ -239,6 +239,26 @@ async function solveViaAiWebTab(promptText, isMulti) {
 
 // Central Message Broker
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Live log forwarding to local bridge server (bypasses page CSP and mixed content)
+  if (message.action === 'POPUP_LOG' && message.payload) {
+    fetch('http://127.0.0.1:8765/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: message.payload.text, level: message.payload.type })
+    }).catch(() => {});
+  }
+
+  // DOM dump forwarding to local bridge server (bypasses page CSP)
+  if (message.action === 'SEND_DEBUG_DUMP' && message.payload) {
+    fetch('http://127.0.0.1:8765/dump', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(message.payload)
+    }).catch(() => {});
+    sendResponse({ success: true });
+    return true;
+  }
+
   // 1. Open Player Tab via Native Extension API (Bypasses 100% of Chrome Popup Blockers)
   if (message.action === 'OPEN_PLAYER_TAB') {
     const targetUrl = message.url;
