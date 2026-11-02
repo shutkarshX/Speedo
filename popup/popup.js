@@ -173,6 +173,8 @@ btnStart.addEventListener('click', async () => {
     }
   } catch (e) {}
 
+  await chrome.storage.local.set({ speedoRunning: true, springboardRunning: true, startTime: Date.now() });
+
   const res = await sendTabMessage('START_AUTOMATION');
   if (!res) {
     updateUI(false);
@@ -182,7 +184,8 @@ btnStart.addEventListener('click', async () => {
 
 btnStop.addEventListener('click', async () => {
   appendLog('Terminating automation...', 'warn');
-  await chrome.storage.local.remove(['springboardRunning', 'pathwayRunner', 'autoResumeCourse']);
+  await chrome.storage.local.set({ speedoRunning: false, springboardRunning: false });
+  await chrome.storage.local.remove(['springboardRunning', 'pathwayRunner', 'autoResumeCourse', 'speedoRunning']);
   await sendTabMessage('STOP_AUTOMATION');
   chrome.runtime.sendMessage({ action: 'STOP_PATHWAY' }).catch(() => {});
   updateUI(false);

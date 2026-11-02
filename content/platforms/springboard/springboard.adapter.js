@@ -718,25 +718,33 @@
         };
 
         const findAnyStartOrAttemptElement = () => {
-          const allCandidates = Array.from(document.querySelectorAll(
-            'button, a, [role="button"], mat-card, .mat-flat-button, .mat-raised-button, .mat-button, .btn, .card, span, div'
+          // 1. Search true interactive buttons and links first
+          const buttons = Array.from(document.querySelectorAll(
+            'button, a, [role="button"], .mat-raised-button, .mat-flat-button, .mat-button, input[type="button"], input[type="submit"]'
           ));
-
-          // 1. Text contains 'attempt'
-          for (const el of allCandidates) {
-            const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
-            if (txt.includes('attempt section') || txt === 'attempt' || (txt.includes('attempt') && txt.length < 30)) {
-              const btn = el.closest('button, a, [role="button"], mat-card, .mat-flat-button, .mat-raised-button, .card') || el;
-              return btn;
+          for (const b of buttons) {
+            const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+            if (txt.includes('attempt') || txt === 'start' || txt === 'start test' || txt === 'begin' || txt === 'continue' || txt === 'resume') {
+              return b;
             }
           }
 
-          // 2. Text matches 'start' / 'resume' / 'begin'
-          for (const el of allCandidates) {
-            const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
-            if (txt === 'start' || txt === 'start assessment' || txt === 'start test' || txt === 'begin contest' || txt === 'take test' || txt === 'continue' || txt === 'resume') {
-              const btn = el.closest('button, a, [role="button"], mat-card, .mat-flat-button, .mat-raised-button, .card') || el;
-              return btn;
+          // 2. Pure text leaf search (elements with NO child elements)
+          const allLeaves = Array.from(document.querySelectorAll('*')).filter(el => el.children.length === 0);
+          for (const leaf of allLeaves) {
+            const txt = (leaf.innerText || leaf.textContent || '').trim().toLowerCase();
+            if (txt.includes('attempt section') || txt === 'attempt' || txt === 'attempt test') {
+              const clickable = leaf.closest('button, a, [role="button"], mat-card, .card, div[class*="btn"], div[class*="action"]') || leaf;
+              return clickable;
+            }
+          }
+
+          // 3. Leaf fallback for start / begin
+          for (const leaf of allLeaves) {
+            const txt = (leaf.innerText || leaf.textContent || '').trim().toLowerCase();
+            if (txt === 'start' || txt === 'start assessment' || txt === 'begin test' || txt === 'start test' || txt === 'take test') {
+              const clickable = leaf.closest('button, a, [role="button"], mat-card, .card') || leaf;
+              return clickable;
             }
           }
 
@@ -758,10 +766,18 @@
             const label = (startBtn.innerText || startBtn.textContent || 'Attempt Section').trim().replace(/\s+/g, ' ');
             AutomatorCore.notify(`Clicking "${label.slice(0, 30)}"...`, 'info');
             try { startBtn.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
-            ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
-              startBtn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
-            });
-            try { startBtn.click(); } catch (e) {}
+
+            const targets = [startBtn];
+            if (startBtn.querySelector('.mat-button-wrapper')) targets.push(startBtn.querySelector('.mat-button-wrapper'));
+            if (startBtn.firstElementChild) targets.push(startBtn.firstElementChild);
+
+            for (const t of targets) {
+              ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+                t.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+              });
+              try { t.click(); } catch (e) {}
+            }
+
             await DomUtils.sleep(2500);
             await this.dismissProctoringFullscreenWarning();
           } else {

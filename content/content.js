@@ -76,4 +76,17 @@
       }).catch(() => {});
     }
   });
+
+  // 5. Universal cross-frame runner synchronization via storage
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.speedoRunning) {
+      if (changes.speedoRunning.newValue === true) {
+        if (platform && typeof platform.start === 'function') {
+          platform.start();
+        }
+      } else if (changes.speedoRunning.newValue === false) {
+        AutomatorCore.stop('Automation stopped.');
+      }
+    }
+  });
 })();
