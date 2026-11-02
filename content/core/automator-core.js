@@ -58,6 +58,7 @@ window.AutomatorCore = (function () {
 
     hudElement = document.createElement('div');
     hudElement.id = 'ca-floating-hud';
+    hudElement.setAttribute('data-ui', '');
     hudElement.innerHTML = `
       <div class="ca-hud-top">
         <div class="ca-hud-badge">

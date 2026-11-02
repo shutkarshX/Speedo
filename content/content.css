@@ -1,19 +1,17 @@
-/* Floating overlay HUD while automation is running (Taste Skill Spec) */
-#ca-floating-hud {
+/* Floating overlay HUD while automation is running (Taste Skill data-terminal Spec) */
+#ca-floating-hud[data-ui] {
   position: fixed;
   top: 16px;
   right: 16px;
   z-index: 9999999;
-  background: rgba(9, 9, 11, 0.88);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  color: #f4f4f5;
+  background: #131217;
+  color: #ffffff;
   padding: 10px 14px;
-  border-radius: 8px;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  border-radius: 6px;
+  font-family: "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 12px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-variant-numeric: tabular-nums;
+  border: 1px solid #222224;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -44,22 +42,14 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25);
-  animation: caPulse 2s infinite;
-}
-
-@keyframes caPulse {
-  0% { transform: scale(0.95); opacity: 0.8; }
-  50% { transform: scale(1.15); opacity: 1; }
-  100% { transform: scale(0.95); opacity: 0.8; }
+  background: #44a282;
 }
 
 .ca-hud-platform {
   font-weight: 600;
   font-size: 11px;
   letter-spacing: 0.02em;
-  color: #f4f4f5;
+  color: #ffffff;
 }
 
 .ca-hud-right {
@@ -70,14 +60,13 @@
 
 .ca-hud-percent {
   font-size: 11px;
-  font-family: ui-monospace, SFMono-Regular, monospace;
-  color: #a1a1aa;
+  color: #8a8c92;
 }
 
 .ca-hud-stop-btn {
-  background: rgba(239, 68, 68, 0.12);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.25);
+  background: rgba(229, 86, 111, 0.12);
+  color: #e5566f;
+  border: 1px solid rgba(229, 86, 111, 0.25);
   padding: 3px 8px;
   border-radius: 4px;
   font-size: 10px;
@@ -86,18 +75,18 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  transition: all 0.15s ease;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
 }
 
 .ca-hud-stop-btn:hover {
-  background: rgba(239, 68, 68, 0.25);
+  background: rgba(229, 86, 111, 0.25);
   color: #ffffff;
 }
 
 .ca-hud-track {
   width: 100%;
   height: 2px;
-  background: rgba(255, 255, 255, 0.08);
+  background: #1b1a1f;
   border-radius: 1px;
   overflow: hidden;
 }
@@ -111,30 +100,29 @@
 
 .ca-hud-status {
   font-size: 11px;
-  color: #71717a;
+  color: #8a8c92;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: ui-monospace, SFMono-Regular, monospace;
 }
 
 /* Pathway in-page floating launch banner */
-#ca-pathway-banner {
+#ca-pathway-banner[data-ui] {
   position: fixed;
   bottom: 25px;
   right: 25px;
   z-index: 999999;
-  background: #1e293b;
-  border: 1px solid #38bdf8;
-  border-radius: 12px;
+  background: #131217;
+  border: 1px solid #222224;
+  border-radius: 6px;
   padding: 14px 18px;
-  color: #f8fafc;
+  color: #ffffff;
   display: flex;
   align-items: center;
   gap: 14px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  animation: caFadeIn 0.4s ease;
+  font-family: "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
+  animation: caFadeIn 0.3s ease;
 }
 
 .ca-banner-info {
@@ -144,30 +132,46 @@
 }
 
 .ca-banner-title {
-  font-weight: 700;
-  font-size: 13px;
-  color: #38bdf8;
-}
-
-.ca-banner-sub {
-  font-size: 11px;
-  color: #94a3b8;
-}
-
-.ca-banner-btn {
-  background: #0284c7;
-  color: white;
-  border: none;
-  padding: 8px 14px;
-  border-radius: 8px;
-  font-size: 12px;
   font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.2s;
+  font-size: 13px;
+  color: #ffffff;
 }
 
-.ca-banner-btn:hover {
-  background: #0369a1;
-  transform: translateY(-1px);
+.ca-banner-desc {
+  font-size: 11px;
+  color: #8a8c92;
+}
+
+.ca-banner-start-btn {
+  background: #ffffff;
+  color: #171719;
+  border: none;
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.ca-banner-start-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-0.5px);
+}
+
+.ca-banner-close-btn {
+  background: none;
+  border: none;
+  color: #8a8c92;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease;
+}
+
+.ca-banner-close-btn:hover {
+  color: #ffffff;
 }

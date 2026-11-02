@@ -4,11 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SPEEDO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="shell">
-    <!-- Top Bar -->
+  <div class="shell" data-ui>
+    <!-- Topbar -->
     <header class="topbar">
       <div class="brand">
         <span class="brand-title">SPEEDO</span>
@@ -17,15 +20,16 @@
       <div id="platformBadge" class="pill pill-platform">Detecting</div>
     </header>
 
-    <!-- Status Beacon Strip -->
+    <!-- Beacon Status Bar -->
     <div class="beacon-bar">
       <div class="beacon-left">
         <span id="statusDot" class="beacon-dot"></span>
         <span id="statusBadge" class="beacon-status">Ready</span>
       </div>
+      <span class="beacon-cue">Autonomous</span>
     </div>
 
-    <!-- Primary Action Controls -->
+    <!-- Actions Stack -->
     <div class="action-stack">
       <button id="btnStart" class="btn btn-hero">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -42,7 +46,7 @@
       </button>
     </div>
 
-    <!-- Live Execution Stream -->
+    <!-- Stream Terminal Panel -->
     <section class="stream-panel">
       <div class="stream-header">
         <span class="stream-label">Console</span>
