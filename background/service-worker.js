@@ -273,4 +273,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true });
     return true;
   }
+
+  // 5. Direct In-Browser Gemini AI Question Solver (Universal Fallback)
+  if (message.action === 'SOLVE_WITH_AI') {
+    const { question, options, isMulti } = message.payload || {};
+    chrome.storage.local.get(['geminiApiKey'], async (res) => {
+      const apiKey = res?.geminiApiKey;
+      if (!apiKey) {
+        sendResponse({ success: false, reason: 'NO_API_KEY' });
+        return;
+      }
+      try {
+        const expectsMulti = isMulti || (question && /select all|choose all|multiple/i.test(question));
+        const promptText = expectsMulti
+          ? `Solve this assessment question. Select ALL correct option indices (0-based).\nQuestion: ${question}\nOptions:\n${(options || []).map((o, idx) => `${idx}: ${o}`).join('\n')}\nRespond with ONLY the comma-separated correct indices (e.g., "0, 2" or "1").`
+          : `Solve this multiple choice question. Select the single best option index (0-based).\nQuestion: ${question}\nOptions:\n${(options || []).map((o, idx) => `${idx}: ${o}`).join('\n')}\nRespond with ONLY the single digit of the correct option index (e.g., 0 or 1 or 2).`;
+
+        const apiResp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: promptText }] }],
+            generationConfig: { temperature: 0.0, maxOutputTokens: 20 }
+          })
+        });
+        const data = await apiResp.json();
+        const rawAnswer = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+        const matches = [...rawAnswer.matchAll(/\d+/g)].map(m => parseInt(m[0], 10));
+        if (matches.length > 0) {
+          sendResponse({ success: true, answerIndex: matches[0], answerIndices: matches });
+        } else {
+          sendResponse({ success: false, reason: 'PARSE_FAILED', raw: rawAnswer });
+        }
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    });
+    return true; // async sendResponse
+  }
 });

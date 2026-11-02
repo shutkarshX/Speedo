@@ -6,6 +6,22 @@ const statusBadge = document.getElementById('statusBadge');
 const statusDot = document.getElementById('statusDot');
 const platformBadge = document.getElementById('platformBadge');
 const logOutput = document.getElementById('logOutput');
+const apiKeyInput = document.getElementById('apiKeyInput');
+const btnSaveKey = document.getElementById('btnSaveKey');
+
+if (apiKeyInput && btnSaveKey) {
+  chrome.storage.local.get(['geminiApiKey'], (res) => {
+    if (res?.geminiApiKey) {
+      apiKeyInput.value = res.geminiApiKey;
+    }
+  });
+
+  btnSaveKey.addEventListener('click', async () => {
+    const key = apiKeyInput.value.trim();
+    await chrome.storage.local.set({ geminiApiKey: key });
+    appendLog(key ? 'Gemini AI API key saved.' : 'Gemini AI API key cleared.', 'info');
+  });
+}
 
 function appendLog(text, type = 'info') {
   const entry = document.createElement('div');

@@ -41,6 +41,11 @@
              document.querySelector('#focus_submit_handson') !== null;
     },
 
+    isIapContestPage() {
+      return window.location.hostname.includes('infosysapps.com') || 
+             window.location.pathname.includes('/contest/');
+    },
+
     async init() {
       console.log('[Springboard Adapter] Initialized on Wingspan platform:', window.location.pathname);
       try {
@@ -63,6 +68,12 @@
       AutomatorCore.notify('Infosys Springboard Automator started.', 'info');
 
       try {
+        if (this.isIapContestPage()) {
+          AutomatorCore.notify('Autonomous IAP Contest Runner initialized inside iframe.', 'info');
+          await this.runIapContestRunner();
+          return;
+        }
+
         if (this.isTocPage()) {
           AutomatorCore.notify('Course Table of Contents detected. Launching viewer...', 'info');
           await this.handleTocPage();
@@ -277,6 +288,14 @@
         await this.handleAssessmentIfPresent();
         if (!AutomatorCore.isRunning) break;
 
+        // B2. If IAP iframe is present, wait for autonomous solver to finish
+        const iapIframe = document.querySelector('iframe#iap-iframe, iframe[src*="lex-iap"], iframe[src*="/contest/"]');
+        if (iapIframe) {
+          AutomatorCore.notify('IAP Assessment frame detected. Waiting for assessment solver...', 'info');
+          await this.waitForIapAssessmentCompletion();
+          if (!AutomatorCore.isRunning) break;
+        }
+
         // C. Trigger & confirm "Mark as Complete" dynamically
         await this.markCurrentUnitComplete();
         if (!AutomatorCore.isRunning) break;
@@ -340,35 +359,320 @@
     },
 
     /**
+     * Locate question containers across Wingspan and IAP contest views
+     */
+    findQuestionContainers(root = document) {
+      const selectors = [
+        'ws-widget-player-quiz .quiz-question',
+        '.question-view',
+        '.contest-question',
+        '.question-container',
+        '.card-question',
+        'mat-card.question',
+        'div[class*="question-card"]',
+        'div[class*="question-item"]'
+      ];
+      for (const sel of selectors) {
+        const found = Array.from(root.querySelectorAll(sel));
+        if (found.length > 0) return found;
+      }
+      return [];
+    },
+
+    /**
+     * Solve a single question via:
+     * 1. Intercepted Network Answer / Local QA Cache
+     * 2. Direct In-Browser Gemini AI Solver
+     * 3. Exploratory Selection (first option)
+     */
+    async solveSingleQuestion(container = document) {
+      const titleEl = container.querySelector(
+        '.question-text, .question-title, .problem-statement, .q-text, .question, h2, h3, h4, [class*="questionText"], [class*="question-desc"]'
+      );
+      const rawQuestion = titleEl ? (titleEl.innerText || titleEl.textContent || '').trim() : '';
+
+      const optionEls = Array.from(container.querySelectorAll(
+        'mat-radio-button, mat-checkbox, label.option, div.option, div[class*="option-item"], input[type="radio"], input[type="checkbox"], div[role="radio"], div[role="checkbox"]'
+      )).filter(el => el.offsetWidth > 0 || el.getClientRects().length > 0 || el.querySelector('input'));
+
+      if (optionEls.length === 0) return false;
+
+      const optionTexts = optionEls.map(el => (el.innerText || el.textContent || el.value || '').trim());
+      const isMulti = optionEls.some(el => el.matches('mat-checkbox, input[type="checkbox"], [role="checkbox"]'));
+
+      // Method 1 & 4: Check QA Cache and Network Interception
+      const cached = await AutomatorCore.getCachedAnswer(rawQuestion);
+      if (cached) {
+        let matched = false;
+        if (Array.isArray(cached.correctIndices) && cached.correctIndices.length > 0) {
+          for (const idx of cached.correctIndices) {
+            if (optionEls[idx]) {
+              try { optionEls[idx].click(); matched = true; } catch (e) {}
+            }
+          }
+        }
+        if (!matched && Array.isArray(cached.correctTexts) && cached.correctTexts.length > 0) {
+          for (const ansText of cached.correctTexts) {
+            const cleanAns = ansText.toLowerCase().trim();
+            const foundIdx = optionTexts.findIndex(txt => txt.toLowerCase().includes(cleanAns) || cleanAns.includes(txt.toLowerCase()));
+            if (foundIdx >= 0 && optionEls[foundIdx]) {
+              try { optionEls[foundIdx].click(); matched = true; } catch (e) {}
+            }
+          }
+        }
+        if (matched) {
+          AutomatorCore.notify('Selected answer from QA cache / network payload.', 'info');
+          return true;
+        }
+      }
+
+      // Method 3: Direct In-Browser Gemini AI Solver
+      try {
+        const aiRes = await new Promise(resolve => {
+          chrome.runtime.sendMessage({
+            action: 'SOLVE_WITH_AI',
+            payload: { question: rawQuestion, options: optionTexts, isMulti }
+          }, resolve);
+        });
+
+        if (aiRes && aiRes.success) {
+          if (Array.isArray(aiRes.answerIndices) && aiRes.answerIndices.length > 0) {
+            for (const idx of aiRes.answerIndices) {
+              if (optionEls[idx]) try { optionEls[idx].click(); } catch (e) {}
+            }
+            AutomatorCore.notify(`Answered via Gemini AI: options [${aiRes.answerIndices.join(', ')}]`, 'info');
+            await AutomatorCore.saveAnswerToCache(rawQuestion, aiRes.answerIndices.map(i => optionTexts[i]), aiRes.answerIndices);
+            return true;
+          } else if (aiRes.answerIndex !== undefined && optionEls[aiRes.answerIndex]) {
+            try { optionEls[aiRes.answerIndex].click(); } catch (e) {}
+            AutomatorCore.notify(`Answered via Gemini AI: option ${aiRes.answerIndex + 1}`, 'info');
+            await AutomatorCore.saveAnswerToCache(rawQuestion, [optionTexts[aiRes.answerIndex]], [aiRes.answerIndex]);
+            return true;
+          }
+        }
+      } catch (aiErr) {}
+
+      // Fallback: Exploratory Selection (first option)
+      try {
+        optionEls[0].click();
+        AutomatorCore.notify('Selected initial option (feedback loop will record correct answer).', 'info');
+        return true;
+      } catch (e) {}
+
+      return false;
+    },
+
+    /**
+     * Locate Next / Save & Next button in assessment views
+     */
+    findNextQuestionButton(root = document) {
+      const buttons = Array.from(root.querySelectorAll('button, a.btn'));
+      return buttons.find(b => {
+        if (b.disabled || b.offsetWidth === 0) return false;
+        const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+        return txt === 'next' || txt === 'save & next' || txt === 'next question' || txt === 'save and next';
+      });
+    },
+
+    /**
+     * Locate Submit / Finish / Complete button in assessment views
+     */
+    findSubmitOrFinishButton(root = document) {
+      const buttons = Array.from(root.querySelectorAll('button, a.btn'));
+      return buttons.find(b => {
+        if (b.disabled || b.offsetWidth === 0) return false;
+        const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+        return txt === 'submit' || 
+               txt === 'submit assessment' || 
+               txt === 'finish' || 
+               txt === 'end test' || 
+               txt === 'finish test' ||
+               txt === 'check answer';
+      });
+    },
+
+    /**
+     * Confirm submit modal dialog if present
+     */
+    async confirmSubmitDialogIfPresent() {
+      await DomUtils.sleep(300);
+      const dialogs = document.querySelectorAll('mat-dialog-container, .modal, .dialog, div[role="dialog"]');
+      for (const d of dialogs) {
+        const btns = Array.from(d.querySelectorAll('button'));
+        const confirmBtn = btns.find(b => {
+          if (b.disabled) return false;
+          const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+          return txt === 'yes' || txt === 'confirm' || txt === 'submit' || txt === 'proceed' || txt === 'ok';
+        });
+        if (confirmBtn) {
+          confirmBtn.click();
+          await DomUtils.sleep(400);
+          return true;
+        }
+      }
+      return false;
+    },
+
+    /**
+     * Scrape and persist correct answers from review/result screens (Method 4: Feedback Loop)
+     */
+    async scrapeAndSaveReviewResults(root = document) {
+      const reviewCards = root.querySelectorAll(
+        '.review-card, .question-review, .result-item, .solution-item, div[class*="review"], div[class*="result"]'
+      );
+      if (reviewCards.length === 0) return false;
+
+      let savedCount = 0;
+      for (const card of reviewCards) {
+        const qEl = card.querySelector('.question-text, .question-title, h3, h4, p');
+        const qText = qEl ? (qEl.innerText || qEl.textContent || '').trim() : '';
+        if (!qText) continue;
+
+        const correctEl = card.querySelector(
+          '.correct-answer, .correct, [aria-label*="correct" i], .text-success, mat-icon[fonticon="check"]'
+        );
+        const correctText = correctEl ? (correctEl.innerText || correctEl.textContent || '').trim() : '';
+
+        if (correctText) {
+          await AutomatorCore.saveAnswerToCache(qText, [correctText]);
+          savedCount++;
+        }
+      }
+
+      if (savedCount > 0) {
+        AutomatorCore.notify(`Feedback loop saved ${savedCount} verified answers to QA cache.`, 'info');
+        return true;
+      }
+      return false;
+    },
+
+    /**
      * Answer assessment / quiz questions dynamically if present
      */
     async handleAssessmentIfPresent() {
-      const quizOptions = document.querySelectorAll('mat-radio-button, mat-checkbox, input[type="radio"], input[type="checkbox"]');
-      if (quizOptions.length === 0) return;
+      // Check if we are on a review screen first
+      await this.scrapeAndSaveReviewResults();
 
-      AutomatorCore.notify('Assessment options detected. Selecting answers...', 'info');
+      const containers = this.findQuestionContainers();
+      if (containers.length > 0) {
+        AutomatorCore.notify('Assessment question containers identified.', 'info');
+        for (const c of containers) {
+          await this.solveSingleQuestion(c);
+          await DomUtils.sleep(150);
+        }
+      } else {
+        const quizOptions = document.querySelectorAll('mat-radio-button, mat-checkbox, input[type="radio"], input[type="checkbox"]');
+        if (quizOptions.length === 0) return;
+        AutomatorCore.notify('Assessment options detected. Selecting answers...', 'info');
+        await this.solveSingleQuestion(document);
+      }
 
-      quizOptions.forEach(opt => {
-        try {
-          if (!opt.classList.contains('mat-radio-checked') && !opt.classList.contains('mat-checkbox-checked')) {
-            opt.click();
-          }
-        } catch (e) {}
-      });
+      await DomUtils.sleep(250);
 
-      await DomUtils.sleep(200);
-
-      const buttons = Array.from(document.querySelectorAll('button'));
-      const submitBtn = buttons.find(b => {
-        if (b.disabled) return false;
-        const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-        return txt === 'submit' || txt === 'check answer' || txt === 'submit assessment';
-      });
-
+      const submitBtn = this.findSubmitOrFinishButton();
       if (submitBtn && !submitBtn.disabled) {
         try { submitBtn.click(); } catch (e) {}
         await DomUtils.sleep(300);
+        await this.confirmSubmitDialogIfPresent();
+        await DomUtils.sleep(500);
+        await this.scrapeAndSaveReviewResults();
       }
+    },
+
+    /**
+     * Autonomous IAP Contest Runner (Runs inside the IAP assessment iframe)
+     */
+    async runIapContestRunner() {
+      AutomatorCore.notify('Engaging IAP Contest Runner...', 'info');
+
+      // 1. Handle pre-test Start/Resume/Begin button
+      const allButtons = Array.from(document.querySelectorAll('button, a.btn'));
+      const startBtn = allButtons.find(b => {
+        if (b.disabled || b.offsetWidth === 0) return false;
+        const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+        return txt === 'start' || txt === 'start assessment' || txt === 'begin contest' || txt === 'take test' || txt === 'continue';
+      });
+      if (startBtn) {
+        AutomatorCore.notify(`Clicking "${startBtn.innerText.trim()}" in IAP iframe...`, 'info');
+        startBtn.click();
+        await DomUtils.sleep(2000);
+      }
+
+      // 2. Solve questions loop
+      let stepLimit = 50;
+      while (stepLimit-- > 0 && AutomatorCore.isRunning) {
+        // Check for review screen
+        if (await this.scrapeAndSaveReviewResults()) {
+          AutomatorCore.notify('IAP Assessment complete. Correct answers indexed.', 'info');
+          try { window.parent.postMessage({ type: 'SPEEDO_IAP_COMPLETED' }, '*'); } catch (e) {}
+          return;
+        }
+
+        const containers = this.findQuestionContainers();
+        if (containers.length > 0) {
+          for (const c of containers) {
+            await this.solveSingleQuestion(c);
+            await DomUtils.sleep(150);
+          }
+        } else {
+          await this.solveSingleQuestion(document);
+        }
+
+        await DomUtils.sleep(300);
+
+        // Next or Submit
+        const nextBtn = this.findNextQuestionButton();
+        if (nextBtn && !nextBtn.disabled) {
+          nextBtn.click();
+          await DomUtils.sleep(800);
+          continue;
+        }
+
+        const submitBtn = this.findSubmitOrFinishButton();
+        if (submitBtn && !submitBtn.disabled) {
+          AutomatorCore.notify('Submitting IAP contest...', 'info');
+          submitBtn.click();
+          await DomUtils.sleep(400);
+          await this.confirmSubmitDialogIfPresent();
+          await DomUtils.sleep(2000);
+          await this.scrapeAndSaveReviewResults();
+          try { window.parent.postMessage({ type: 'SPEEDO_IAP_COMPLETED' }, '*'); } catch (e) {}
+          return;
+        }
+
+        break;
+      }
+    },
+
+    /**
+     * Parent frame waiter for nested IAP contest completion
+     */
+    async waitForIapAssessmentCompletion(maxWaitMs = 120000) {
+      window.__SPEEDO_IAP_FINISHED__ = false;
+      const startTime = Date.now();
+      AutomatorCore.notify('Waiting for IAP contest completion...', 'info');
+
+      while (Date.now() - startTime < maxWaitMs) {
+        if (!AutomatorCore.isRunning) return false;
+
+        if (window.__SPEEDO_IAP_FINISHED__) {
+          AutomatorCore.notify('IAP assessment finished.', 'info');
+          return true;
+        }
+
+        const markBtn = document.querySelector('button[aria-label*="mark as complete" i], button.mark-as-complete-mini');
+        if (markBtn && !markBtn.disabled) {
+          return true;
+        }
+
+        const nextBtn = document.querySelector('button[aria-label="Next Content"], button[aria-label="Next"]');
+        if (nextBtn && !nextBtn.disabled) {
+          return true;
+        }
+
+        await DomUtils.sleep(1000);
+      }
+      return false;
     },
 
     /**

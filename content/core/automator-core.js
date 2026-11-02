@@ -174,6 +174,67 @@ window.AutomatorCore = (function () {
     }
   }
 
+  /**
+   * Assessment QA Cache & Persistence Engine
+   */
+  async function getCachedAnswer(questionText) {
+    if (!questionText) return null;
+    try {
+      const stored = await chrome.storage.local.get(['speedo_qa_cache']);
+      const cache = stored.speedo_qa_cache || {};
+      const normKey = questionText.trim().toLowerCase().replace(/\s+/g, ' ');
+      if (cache[normKey]) return cache[normKey];
+      for (const [k, v] of Object.entries(cache)) {
+        if (normKey.includes(k) || k.includes(normKey)) {
+          return v;
+        }
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  async function saveAnswerToCache(questionText, correctTexts = [], correctIndices = []) {
+    if (!questionText) return;
+    try {
+      const stored = await chrome.storage.local.get(['speedo_qa_cache']);
+      const cache = stored.speedo_qa_cache || {};
+      const normKey = questionText.trim().toLowerCase().replace(/\s+/g, ' ');
+      cache[normKey] = {
+        correctTexts: Array.isArray(correctTexts) ? correctTexts : [correctTexts],
+        correctIndices: Array.isArray(correctIndices) ? correctIndices : [correctIndices],
+        updatedAt: Date.now()
+      };
+      await chrome.storage.local.set({ speedo_qa_cache: cache });
+      console.log(`[SPEEDO Core] Cached answer for question: "${normKey.slice(0, 50)}..."`);
+    } catch (e) {}
+  }
+
+  // Cross-world / frame message listener for intercepted answers and IAP lifecycle
+  window.addEventListener('message', async (event) => {
+    if (event.data?.type === 'SPEEDO_ASSESSMENT_ANSWERS_FOUND' && Array.isArray(event.data.questions)) {
+      const { questions } = event.data;
+      try {
+        const stored = await chrome.storage.local.get(['speedo_qa_cache']);
+        const cache = stored.speedo_qa_cache || {};
+        for (const q of questions) {
+          if (!q.question) continue;
+          const normKey = q.question.trim().toLowerCase().replace(/\s+/g, ' ');
+          cache[normKey] = {
+            options: q.options || [],
+            correctIndices: q.correctIndices || [],
+            correctTexts: q.correctTexts || [],
+            updatedAt: Date.now()
+          };
+        }
+        await chrome.storage.local.set({ speedo_qa_cache: cache });
+        console.log(`[SPEEDO Core] Persisted ${questions.length} intercepted answers into speedo_qa_cache.`);
+      } catch (e) {}
+    } else if (event.data?.type === 'SPEEDO_IAP_COMPLETED') {
+      window.__SPEEDO_IAP_FINISHED__ = true;
+      console.log('[SPEEDO Core] Received SPEEDO_IAP_COMPLETED signal.');
+    }
+  });
+
   return {
     get isRunning() { return getIsRunning(); },
     setIsRunning,
@@ -185,6 +246,8 @@ window.AutomatorCore = (function () {
     removeHUD,
     runInMainWorld,
     stop,
-    captureAndSendPage
+    captureAndSendPage,
+    getCachedAnswer,
+    saveAnswerToCache
   };
 })();

@@ -205,6 +205,73 @@ body {
   color: var(--muted);
 }
 
+/* Settings Drawer */
+.settings-drawer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 6px 10px;
+  font-size: 11px;
+}
+
+.settings-summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 500;
+  user-select: none;
+}
+
+.settings-summary:hover {
+  color: var(--text);
+}
+
+.settings-body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-label {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.settings-input-row {
+  display: flex;
+  gap: 6px;
+}
+
+.input-text {
+  flex: 1;
+  background: var(--ground);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 4px 8px;
+  font-size: 11px;
+  outline: none;
+}
+
+.input-text:focus {
+  border-color: var(--muted);
+}
+
+.btn-sm {
+  background: var(--raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 10px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.btn-sm:hover {
+  background: var(--control);
+}
+
 /* Stream Panel */
 .stream-panel {
   background: var(--surface);
