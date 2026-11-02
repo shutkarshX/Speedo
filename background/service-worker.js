@@ -406,6 +406,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Pre-warm Gemini tab silently in background
+  if (message.action === 'PREWARM_AI_TAB') {
+    chrome.tabs.query({ url: ['*://gemini.google.com/*', '*://chatgpt.com/*'] }).then((tabs) => {
+      if (tabs.length === 0) {
+        chrome.tabs.create({ url: 'https://gemini.google.com/app', active: false });
+        console.log('[SPEEDO] Auto-spawned background Gemini tab.');
+      }
+    });
+    sendResponse({ success: true });
+    return true;
+  }
+
   // 5. Intelligent Question Solver (Direct API or Browser Web Tab Bridge)
   if (message.action === 'SOLVE_WITH_AI') {
     const { question, options, isMulti } = message.payload || {};

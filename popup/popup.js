@@ -153,6 +153,7 @@ if (btnCapture) {
 
 btnStart.addEventListener('click', async () => {
   appendLog('Dispatching start instruction...', 'info');
+  chrome.runtime.sendMessage({ action: 'PREWARM_AI_TAB' }).catch(() => {});
   updateUI(true);
   const res = await sendTabMessage('START_AUTOMATION');
   if (!res) {

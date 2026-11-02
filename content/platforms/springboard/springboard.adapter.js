@@ -63,6 +63,7 @@
       if (AutomatorCore.isRunning) return;
       AutomatorCore.setIsRunning(true);
       await chrome.storage.local.set({ springboardRunning: true });
+      chrome.runtime.sendMessage({ action: 'PREWARM_AI_TAB' }).catch(() => {});
 
       AutomatorCore.showHUD('Analyzing Springboard Course...');
       AutomatorCore.notify('Infosys Springboard Automator started.', 'info');
