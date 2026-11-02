@@ -76,10 +76,9 @@ window.AutomatorCore = (function () {
     const stopBtn = document.getElementById('ca-hud-stop-btn');
     if (stopBtn) {
       stopBtn.addEventListener('click', () => {
+        stop('Automation stopped by user via HUD.');
         if (typeof onStop === 'function') {
-          onStop();
-        } else {
-          stop('Automation stopped by user via HUD.');
+          try { onStop(); } catch (e) {}
         }
       });
     }

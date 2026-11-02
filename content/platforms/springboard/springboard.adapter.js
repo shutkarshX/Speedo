@@ -184,8 +184,9 @@
         if (isHandsOn) {
           AutomatorCore.notify(`⏩ Hands-on lab "${fullDisplayTitle}" skipped. Advancing...`, 'info');
           AutomatorCore.updateHUD(`⏩ Skipping: ${fullDisplayTitle}`, 50);
+          if (!AutomatorCore.isRunning) break;
           const advanced = await this.advanceToNextUnit();
-          if (!advanced) break;
+          if (!advanced || !AutomatorCore.isRunning) break;
           await this.waitForSlideChange(lastUrl, 3000);
           lastUrl = window.location.href;
           continue;
@@ -195,28 +196,34 @@
         if (this.isCurrentUnitCompleted()) {
           AutomatorCore.notify(`✅ Unit "${fullDisplayTitle}" is already completed! Advancing...`, 'info');
           AutomatorCore.updateHUD(`✅ Done: ${fullDisplayTitle}`, 50);
+          if (!AutomatorCore.isRunning) break;
           const advanced = await this.advanceToNextUnit();
-          if (!advanced) break;
+          if (!advanced || !AutomatorCore.isRunning) break;
           await this.waitForSlideChange(lastUrl, 3000);
           lastUrl = window.location.href;
           continue;
         }
 
         // 5. Unit is INCOMPLETE: Complete it dynamically!
+        if (!AutomatorCore.isRunning) break;
         AutomatorCore.updateHUD(`Completing: ${fullDisplayTitle}`, 70);
 
         // A. Start video if present so Mark as Complete unlocks immediately
         await this.handleVideoIfPresent();
+        if (!AutomatorCore.isRunning) break;
 
         // B. Answer quiz/assessment if present
         await this.handleAssessmentIfPresent();
+        if (!AutomatorCore.isRunning) break;
 
         // C. Trigger & confirm "Mark as Complete" dynamically
         await this.markCurrentUnitComplete();
+        if (!AutomatorCore.isRunning) break;
 
         // D. Advance to next unit/module immediately
         const advanced = await this.advanceToNextUnit();
-        if (!advanced) {
+        if (!advanced || !AutomatorCore.isRunning) {
+          if (!AutomatorCore.isRunning) break;
           AutomatorCore.notify('🎉 Course completed or no more units available!', 'info');
           AutomatorCore.updateHUD('🎉 Course Completed!', 100);
           AutomatorCore.stop('🎉 Course Completed!');
@@ -225,6 +232,7 @@
 
         // Wait dynamically for next slide to mount
         await this.waitForSlideChange(lastUrl, 3000);
+        if (!AutomatorCore.isRunning) break;
         lastUrl = window.location.href;
       }
     },
@@ -235,6 +243,7 @@
     async waitForSlideChange(previousUrl, maxWaitMs = 3000) {
       const startTime = Date.now();
       while (Date.now() - startTime < maxWaitMs) {
+        if (!AutomatorCore.isRunning) return false;
         if (window.location.href !== previousUrl) {
           await DomUtils.sleep(200); // Allow Angular router outlet to mount
           return true;
@@ -390,7 +399,9 @@
      * Advance to the next module in the TOC when at the end of a module (or on a code slide)
      */
     async advanceToNextModule() {
+      if (!AutomatorCore.isRunning) return false;
       await this.ensureContentsTabActive();
+      if (!AutomatorCore.isRunning) return false;
 
       // Find all module folders (level="0")
       const folders = Array.from(document.querySelectorAll('mat-tree-node[level="0"], mat-tree-node:not([level="1"]):not([level="2"])'));
@@ -445,8 +456,10 @@
      * Click Next Content button or advance via TOC sidebar / next module
      */
     async advanceToNextUnit() {
+      if (!AutomatorCore.isRunning) return false;
       // If any lingering dialog exists, confirm it
       await this.confirmAnyOpenDialog();
+      if (!AutomatorCore.isRunning) return false;
 
       // 1. Try primary Next Content navigation button IF enabled
       const nextSelectors = [

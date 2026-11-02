@@ -123,8 +123,8 @@ btnStart.addEventListener('click', async () => {
 
 btnStop.addEventListener('click', async () => {
   appendLog('Stopping automation...', 'warn');
+  await chrome.storage.local.remove(['springboardRunning', 'pathwayRunner', 'autoResumeCourse']);
   await sendTabMessage('STOP_AUTOMATION');
   chrome.runtime.sendMessage({ action: 'STOP_PATHWAY' }).catch(() => {});
-  chrome.storage.local.remove(['pathwayRunner', 'autoResumeCourse']);
   updateUI(false);
 });
