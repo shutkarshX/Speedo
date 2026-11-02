@@ -3,50 +3,55 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Course Automator</title>
+  <title>SPEEDO</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <div class="logo">⚡</div>
-      <div class="title-group">
-        <h1>Course Automator</h1>
-        <p class="subtitle">Single-Click Completion</p>
+  <div class="shell">
+    <!-- Top Bar -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-title">SPEEDO</span>
+        <span class="brand-ver">v2.4</span>
+      </div>
+      <div id="platformBadge" class="pill pill-platform">Detecting</div>
+    </header>
+
+    <!-- Status Beacon Strip -->
+    <div class="beacon-bar">
+      <div class="beacon-left">
+        <span id="statusDot" class="beacon-dot"></span>
+        <span id="statusBadge" class="beacon-status">Ready</span>
       </div>
     </div>
 
-    <div class="card status-card">
-      <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
-        <div>
-          <span class="status-label">Platform:</span>
-          <span id="platformBadge" class="badge" style="background:#e0e7ff; color:#3730a3; font-weight:600;">Detecting...</span>
-        </div>
-        <div>
-          <span class="status-label">Status:</span>
-          <span id="statusBadge" class="badge badge-idle">Ready</span>
-        </div>
-      </div>
-    </div>
+    <!-- Primary Action Controls -->
+    <div class="action-stack">
+      <button id="btnStart" class="btn btn-hero">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        <span>Start Automation</span>
+      </button>
 
-    <div class="action-buttons">
-      <button id="btnStart" class="btn btn-primary">
-        <span>🚀 Complete Course / Test</span>
-      </button>
-      <button id="btnCapture" class="btn btn-debug">
-        <span>📡 Send Page to AI (Live Inspect)</span>
-      </button>
-      <button id="btnStop" class="btn btn-secondary" disabled>
-        <span>⏹ Stop</span>
+      <button id="btnStop" class="btn btn-destructive" disabled>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+        </svg>
+        <span>Halt</span>
       </button>
     </div>
 
-    <div class="card log-container">
-      <div class="log-title">Activity Log</div>
-      <div id="logOutput" class="log-output">
-        <div class="log-entry log-info">System initialized. Click the button to start.</div>
+    <!-- Live Execution Stream -->
+    <section class="stream-panel">
+      <div class="stream-header">
+        <span class="stream-label">Console</span>
+        <button id="btnCapture" class="stream-action" title="Send DOM inspection snapshot to bridge">Snapshot</button>
       </div>
-    </div>
+      <div id="logOutput" class="stream-body">
+        <div class="stream-row text-muted">Ready for execution.</div>
+      </div>
+    </section>
   </div>
 
   <script src="popup.js"></script>

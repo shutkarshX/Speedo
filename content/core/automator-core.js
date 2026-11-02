@@ -59,17 +59,25 @@ window.AutomatorCore = (function () {
     hudElement = document.createElement('div');
     hudElement.id = 'ca-floating-hud';
     hudElement.innerHTML = `
-      <div class="ca-hud-header">
-        <span>⚡ ${activePlatformInstance ? activePlatformInstance.name : 'Automator'}</span>
-        <span id="ca-hud-percent">0%</span>
+      <div class="ca-hud-top">
+        <div class="ca-hud-badge">
+          <span class="ca-hud-pulse"></span>
+          <span class="ca-hud-platform">${activePlatformInstance ? activePlatformInstance.name : 'SPEEDO'}</span>
+        </div>
+        <div class="ca-hud-right">
+          <span id="ca-hud-percent" class="ca-hud-percent">0%</span>
+          <button id="ca-hud-stop-btn" class="ca-hud-stop-btn" title="Stop Automation">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+            </svg>
+            <span>Stop</span>
+          </button>
+        </div>
       </div>
-      <div class="ca-hud-progress-bar">
-        <div id="ca-hud-fill" class="ca-hud-progress-fill"></div>
+      <div class="ca-hud-track">
+        <div id="ca-hud-fill" class="ca-hud-fill"></div>
       </div>
       <div id="ca-hud-status" class="ca-hud-status">${initialText}</div>
-      <div class="ca-hud-controls">
-        <button id="ca-hud-stop-btn" class="ca-hud-stop-btn">⏹ Stop</button>
-      </div>
     `;
     document.body.appendChild(hudElement);
 

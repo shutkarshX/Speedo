@@ -1,81 +1,121 @@
-/* Floating overlay HUD while automation is running */
+/* Floating overlay HUD while automation is running (Taste Skill Spec) */
 #ca-floating-hud {
   position: fixed;
-  top: 20px;
-  right: 20px;
+  top: 16px;
+  right: 16px;
   z-index: 9999999;
-  background: #0f172a;
-  color: #f8fafc;
-  padding: 14px 18px;
-  border-radius: 12px;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-size: 13px;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
-  border: 1px solid #38bdf8;
+  background: rgba(9, 9, 11, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: #f4f4f5;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  font-size: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 280px;
-  max-width: 380px;
-  animation: caFadeIn 0.3s ease;
+  min-width: 260px;
+  max-width: 340px;
+  animation: caFadeIn 0.2s ease-out;
+  user-select: none;
 }
 
 @keyframes caFadeIn {
-  from { opacity: 0; transform: translateY(-10px); }
+  from { opacity: 0; transform: translateY(-6px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-.ca-hud-header {
+.ca-hud-top {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-weight: 700;
-  color: #38bdf8;
 }
 
-.ca-hud-progress-bar {
-  width: 100%;
+.ca-hud-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ca-hud-pulse {
+  width: 6px;
   height: 6px;
-  background: #334155;
-  border-radius: 3px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25);
+  animation: caPulse 2s infinite;
+}
+
+@keyframes caPulse {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.ca-hud-platform {
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: #f4f4f5;
+}
+
+.ca-hud-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ca-hud-percent {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: #a1a1aa;
+}
+
+.ca-hud-stop-btn {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.ca-hud-stop-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #ffffff;
+}
+
+.ca-hud-track {
+  width: 100%;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 1px;
   overflow: hidden;
 }
 
-.ca-hud-progress-fill {
+.ca-hud-fill {
   height: 100%;
-  background: linear-gradient(90deg, #38bdf8, #10b981);
+  background: #ffffff;
   width: 0%;
   transition: width 0.3s ease;
 }
 
 .ca-hud-status {
   font-size: 11px;
-  color: #94a3b8;
+  color: #71717a;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.ca-hud-controls {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 4px;
-}
-
-.ca-hud-stop-btn {
-  background: #ef4444;
-  color: white;
-  border: none;
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.ca-hud-stop-btn:hover {
-  background: #dc2626;
+  font-family: ui-monospace, SFMono-Regular, monospace;
 }
 
 /* Pathway in-page floating launch banner */
