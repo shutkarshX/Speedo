@@ -582,27 +582,86 @@
     },
 
     /**
+     * Auto-dismiss the Springboard proctoring fullscreen modal
+     * ("Accessible only on fullscreen. Click Okay to continue")
+     */
+    async dismissProctoringFullscreenWarning() {
+      const warningHolders = document.querySelectorAll('.proctoring-warning-holder, .proctoring-warning');
+      const okayBtns = Array.from(document.querySelectorAll('button, .mat-flat-button')).filter(b => {
+        const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+        return txt === 'okay' || txt === 'ok';
+      });
+
+      if (warningHolders.length > 0 || okayBtns.length > 0) {
+        AutomatorCore.notify('Proctoring fullscreen warning detected. Dismissing...', 'info');
+
+        try {
+          if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+            document.documentElement.requestFullscreen().catch(() => {});
+          }
+        } catch (e) {}
+
+        for (const btn of okayBtns) {
+          try {
+            btn.click();
+          } catch (e) {}
+        }
+
+        warningHolders.forEach(holder => {
+          holder.style.display = 'none';
+        });
+
+        await DomUtils.sleep(250);
+        return true;
+      }
+      return false;
+    },
+
+    /**
      * Autonomous IAP Contest Runner (Runs inside the IAP assessment iframe)
      */
     async runIapContestRunner() {
       AutomatorCore.notify('Engaging IAP Contest Runner...', 'info');
 
-      // 1. Handle pre-test Start/Resume/Begin button
-      const allButtons = Array.from(document.querySelectorAll('button, a.btn'));
+      // Dismiss proctoring warning if present
+      await this.dismissProctoringFullscreenWarning();
+
+      // 1. Handle pre-test Start / Resume / Attempt Section buttons
+      const allButtons = Array.from(document.querySelectorAll('button, a.btn, a, .btn'));
       const startBtn = allButtons.find(b => {
         if (b.disabled || b.offsetWidth === 0) return false;
         const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-        return txt === 'start' || txt === 'start assessment' || txt === 'begin contest' || txt === 'take test' || txt === 'continue';
+        return txt.includes('attempt section') || 
+               txt === 'start' || 
+               txt === 'start assessment' || 
+               txt === 'begin contest' || 
+               txt === 'take test' || 
+               txt === 'continue';
       });
       if (startBtn) {
-        AutomatorCore.notify(`Clicking "${startBtn.innerText.trim()}" in IAP iframe...`, 'info');
+        AutomatorCore.notify(`Clicking "${startBtn.innerText.trim()}" in IAP contest...`, 'info');
         startBtn.click();
         await DomUtils.sleep(2000);
+        await this.dismissProctoringFullscreenWarning();
       }
 
       // 2. Solve questions loop
       let stepLimit = 50;
       while (stepLimit-- > 0 && AutomatorCore.isRunning) {
+        await this.dismissProctoringFullscreenWarning();
+
+        // Also check if Attempt Section button appeared inside sections list
+        const attemptBtn = Array.from(document.querySelectorAll('button, a')).find(b => {
+          if (b.disabled || b.offsetWidth === 0) return false;
+          return (b.innerText || b.textContent || '').trim().toLowerCase().includes('attempt section');
+        });
+        if (attemptBtn) {
+          AutomatorCore.notify('Entering section: clicking Attempt Section...', 'info');
+          attemptBtn.click();
+          await DomUtils.sleep(1500);
+          continue;
+        }
+
         // Check for review screen
         if (await this.scrapeAndSaveReviewResults()) {
           AutomatorCore.notify('IAP Assessment complete. Correct answers indexed.', 'info');
@@ -656,6 +715,9 @@
 
       while (Date.now() - startTime < maxWaitMs) {
         if (!AutomatorCore.isRunning) return false;
+
+        // Auto-dismiss proctoring warning in parent frame
+        await this.dismissProctoringFullscreenWarning();
 
         if (window.__SPEEDO_IAP_FINISHED__) {
           AutomatorCore.notify('IAP assessment finished.', 'info');

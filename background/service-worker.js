@@ -59,28 +59,62 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
 });
 
-// Helper: Automate open Gemini / ChatGPT web tab with zero API key
-async function solveViaAiWebTab(promptText, isMulti) {
-  const tabs = await chrome.tabs.query({
+let activeAiTabId = null;
+let isCreatingAiTab = false;
+
+async function getOrCreateAiTab() {
+  if (activeAiTabId) {
+    try {
+      const t = await chrome.tabs.get(activeAiTabId);
+      if (t) return t;
+    } catch (e) {
+      activeAiTabId = null;
+    }
+  }
+
+  const existing = await chrome.tabs.query({
     url: ['*://gemini.google.com/*', '*://chatgpt.com/*']
   });
 
-  let targetTab = null;
-  let isGemini = true;
+  if (existing.length > 0) {
+    activeAiTabId = existing[0].id;
+    // Clean up any extraneous duplicate tabs that were accidentally spawned
+    if (existing.length > 1) {
+      for (let i = 1; i < existing.length; i++) {
+        chrome.tabs.remove(existing[i].id).catch(() => {});
+      }
+    }
+    return existing[0];
+  }
 
-  if (tabs.length > 0) {
-    targetTab = tabs[0];
-    isGemini = (targetTab.url || '').includes('gemini.google.com');
-  } else {
-    targetTab = await chrome.tabs.create({
+  if (isCreatingAiTab) {
+    while (isCreatingAiTab) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    if (activeAiTabId) {
+      try { return await chrome.tabs.get(activeAiTabId); } catch (e) {}
+    }
+  }
+
+  isCreatingAiTab = true;
+  try {
+    const doubleCheck = await chrome.tabs.query({
+      url: ['*://gemini.google.com/*', '*://chatgpt.com/*']
+    });
+    if (doubleCheck.length > 0) {
+      activeAiTabId = doubleCheck[0].id;
+      return doubleCheck[0];
+    }
+
+    const newTab = await chrome.tabs.create({
       url: 'https://gemini.google.com/app',
       active: false
     });
-    isGemini = true;
+    activeAiTabId = newTab.id;
 
     await new Promise((resolve) => {
       const listener = (tid, info) => {
-        if (tid === targetTab.id && info.status === 'complete') {
+        if (tid === newTab.id && info.status === 'complete') {
           chrome.tabs.onUpdated.removeListener(listener);
           resolve();
         }
@@ -89,7 +123,19 @@ async function solveViaAiWebTab(promptText, isMulti) {
       setTimeout(resolve, 8000);
     });
     await new Promise((r) => setTimeout(r, 2000));
+    return newTab;
+  } finally {
+    isCreatingAiTab = false;
   }
+}
+
+// Helper: Automate open Gemini / ChatGPT web tab with zero API key
+async function solveViaAiWebTab(promptText, isMulti) {
+  const targetTab = await getOrCreateAiTab();
+  if (!targetTab || !targetTab.id) {
+    return { success: false, error: 'Could not acquire AI web tab.' };
+  }
+  const isGemini = (targetTab.url || '').includes('gemini.google.com') || (targetTab.pendingUrl || '').includes('gemini.google.com');
 
   const execResults = await chrome.scripting.executeScript({
     target: { tabId: targetTab.id },
@@ -408,12 +454,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // Pre-warm Gemini tab silently in background
   if (message.action === 'PREWARM_AI_TAB') {
-    chrome.tabs.query({ url: ['*://gemini.google.com/*', '*://chatgpt.com/*'] }).then((tabs) => {
-      if (tabs.length === 0) {
-        chrome.tabs.create({ url: 'https://gemini.google.com/app', active: false });
-        console.log('[SPEEDO] Auto-spawned background Gemini tab.');
-      }
-    });
+    getOrCreateAiTab().catch(() => {});
     sendResponse({ success: true });
     return true;
   }
