@@ -410,8 +410,17 @@
      * 3. Exploratory Selection (first option)
      */
     async solveSingleQuestion(container = document) {
+      const clickOption = (el) => {
+        if (!el) return;
+        const target = el.querySelector('label, input, .mat-radio-label, .mat-checkbox-label, .mat-radio-container') || el;
+        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+          target.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+        });
+        try { target.click(); } catch (e) {}
+      };
+
       const titleEl = container.querySelector(
-        '.question-text, .question-title, .problem-statement, .q-text, .question, h2, h3, h4, [class*="questionText"], [class*="question-desc"]'
+        '.question-text, .question-title, .problem-statement, .q-text, .question, h2, h3, h4, [class*="questionText"], [class*="question-desc"], .content-card'
       );
       const rawQuestion = titleEl ? (titleEl.innerText || titleEl.textContent || '').trim() : '';
 
@@ -431,7 +440,8 @@
         if (Array.isArray(cached.correctIndices) && cached.correctIndices.length > 0) {
           for (const idx of cached.correctIndices) {
             if (optionEls[idx]) {
-              try { optionEls[idx].click(); matched = true; } catch (e) {}
+              clickOption(optionEls[idx]);
+              matched = true;
             }
           }
         }
@@ -440,7 +450,8 @@
             const cleanAns = ansText.toLowerCase().trim();
             const foundIdx = optionTexts.findIndex(txt => txt.toLowerCase().includes(cleanAns) || cleanAns.includes(txt.toLowerCase()));
             if (foundIdx >= 0 && optionEls[foundIdx]) {
-              try { optionEls[foundIdx].click(); matched = true; } catch (e) {}
+              clickOption(optionEls[foundIdx]);
+              matched = true;
             }
           }
         }
@@ -463,13 +474,13 @@
           const methodLabel = aiRes.method === 'web_tab' ? 'Gemini Web Tab' : 'Gemini AI';
           if (Array.isArray(aiRes.answerIndices) && aiRes.answerIndices.length > 0) {
             for (const idx of aiRes.answerIndices) {
-              if (optionEls[idx]) try { optionEls[idx].click(); } catch (e) {}
+              if (optionEls[idx]) clickOption(optionEls[idx]);
             }
             AutomatorCore.notify(`Answered via ${methodLabel}: options [${aiRes.answerIndices.join(', ')}]`, 'info');
             await AutomatorCore.saveAnswerToCache(rawQuestion, aiRes.answerIndices.map(i => optionTexts[i]), aiRes.answerIndices);
             return true;
           } else if (aiRes.answerIndex !== undefined && optionEls[aiRes.answerIndex]) {
-            try { optionEls[aiRes.answerIndex].click(); } catch (e) {}
+            clickOption(optionEls[aiRes.answerIndex]);
             AutomatorCore.notify(`Answered via ${methodLabel}: option ${aiRes.answerIndex + 1}`, 'info');
             await AutomatorCore.saveAnswerToCache(rawQuestion, [optionTexts[aiRes.answerIndex]], [aiRes.answerIndex]);
             return true;
@@ -479,7 +490,7 @@
 
       // Fallback: Exploratory Selection (first option)
       try {
-        optionEls[0].click();
+        clickOption(optionEls[0]);
         AutomatorCore.notify('Selected initial option (feedback loop will record correct answer).', 'info');
         return true;
       } catch (e) {}
@@ -491,21 +502,29 @@
      * Locate Next / Save & Next button in assessment views
      */
     findNextQuestionButton(root = document) {
-      const candidates = Array.from(root.querySelectorAll('button, a, div[role="button"], mat-icon'));
+      const candidates = Array.from(root.querySelectorAll('button, a, div[role="button"], mat-icon, span'));
       return candidates.find(b => {
         if (b.disabled || b.offsetWidth === 0) return false;
         const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
         const aria = (b.getAttribute('aria-label') || '').toLowerCase();
         const tooltip = (b.getAttribute('mattooltip') || '').toLowerCase();
+
+        // Never match submit or finish buttons as Next
+        if (txt.includes('finish') || txt.includes('submit') || aria.includes('finish') || aria.includes('submit')) {
+          return false;
+        }
+
         return txt === 'next' || 
                txt === 'save & next' || 
                txt === 'next question' || 
                txt === 'save and next' || 
+               txt === 'next >' ||
                txt.includes('next') ||
                aria.includes('next') ||
                tooltip.includes('next') ||
                txt === 'navigate_next' ||
-               txt === 'chevron_right';
+               txt === 'chevron_right' ||
+               txt === 'arrow_forward';
       });
     },
 
@@ -633,13 +652,7 @@
       });
 
       if (warningHolders.length > 0 || okayBtns.length > 0) {
-        AutomatorCore.notify('Proctoring fullscreen warning detected. Dismissing...', 'info');
-
-        try {
-          if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
-            document.documentElement.requestFullscreen().catch(() => {});
-          }
-        } catch (e) {}
+        AutomatorCore.notify('Proctoring warning detected. Dismissing...', 'info');
 
         for (const btn of okayBtns) {
           try {
@@ -652,7 +665,7 @@
           holder.remove();
         });
 
-        await DomUtils.sleep(250);
+        await DomUtils.sleep(200);
         return true;
       }
       return false;
@@ -672,50 +685,94 @@
       // Dismiss proctoring warning if present
       await this.dismissProctoringFullscreenWarning();
 
-      // 1. Handle pre-test Start / Resume / Attempt Section buttons
-      const allButtons = Array.from(document.querySelectorAll('button, a.btn, a, .btn, div[role="button"], span'));
-      const startBtn = allButtons.find(b => {
-        if (b.disabled) return false;
-        const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-        return txt === 'attempt section' || 
-               txt.includes('attempt section') || 
-               txt === 'start' || 
-               txt === 'start assessment' || 
-               txt === 'begin contest' || 
-               txt === 'take test' || 
-               txt === 'continue';
-      });
-      if (startBtn) {
-        AutomatorCore.notify(`Clicking "${startBtn.innerText.trim()}" in IAP contest...`, 'info');
-        startBtn.click();
-        await DomUtils.sleep(2000);
-        await this.dismissProctoringFullscreenWarning();
+      const hasQuestionsOnScreen = () => {
+        return document.querySelector(
+          'mat-radio-button, mat-checkbox, input[type="radio"], input[type="checkbox"], .question-view, .contest-question, .question-palette, .palette-item, [class*="question"]'
+        ) !== null;
+      };
+
+      // 1. Enter section / Start test if questions are not yet visible
+      if (!hasQuestionsOnScreen()) {
+        const startSelectors = [
+          'button.mat-raised-button',
+          'button.mat-flat-button',
+          'button[mat-flat-button]',
+          'button[mat-raised-button]',
+          'button.btn',
+          'button',
+          'a.btn',
+          '[role="button"]'
+        ];
+        const allCandidates = Array.from(document.querySelectorAll(startSelectors.join(','))).filter(b => !b.disabled && b.offsetWidth > 0);
+        const startBtn = allCandidates.find(b => {
+          const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+          return txt.includes('attempt section') || 
+                 txt === 'start' || 
+                 txt === 'start assessment' || 
+                 txt === 'begin contest' || 
+                 txt === 'take test' || 
+                 txt === 'continue';
+        });
+
+        if (startBtn) {
+          const btnTarget = startBtn.closest('button, a, [role="button"]') || startBtn;
+          AutomatorCore.notify(`Clicking "${btnTarget.innerText.trim()}" to enter section...`, 'info');
+          ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+            btnTarget.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+          });
+          try { btnTarget.click(); } catch (e) {}
+          await DomUtils.sleep(2500);
+          await this.dismissProctoringFullscreenWarning();
+        }
       }
 
       // 2. Solve questions loop
-      let stepLimit = 50;
+      const answeredQuestions = new Set();
+      let stepLimit = 70;
+      let consecutiveNoNextCount = 0;
+
       while (stepLimit-- > 0 && AutomatorCore.isRunning) {
         await this.dismissProctoringFullscreenWarning();
 
-        // Also check if Attempt Section button appeared inside sections list
-        const attemptBtn = Array.from(document.querySelectorAll('button, a, div[role="button"], span, .btn')).find(b => {
-          if (b.disabled) return false;
-          return (b.innerText || b.textContent || '').trim().toLowerCase().includes('attempt section');
-        });
-        if (attemptBtn) {
-          AutomatorCore.notify('Entering section: clicking Attempt Section...', 'info');
-          attemptBtn.click();
-          await DomUtils.sleep(1500);
-          continue;
-        }
-
-        // Check for review screen
+        // Check for review screen first
         if (await this.scrapeAndSaveReviewResults()) {
           AutomatorCore.notify('IAP Assessment complete. Correct answers indexed.', 'info');
           try { window.parent.postMessage({ type: 'SPEEDO_IAP_COMPLETED' }, '*'); } catch (e) {}
           return;
         }
 
+        // If still not inside question view, check if an Attempt Section button is visible
+        if (!hasQuestionsOnScreen()) {
+          const attemptBtn = Array.from(document.querySelectorAll('button, a, [role="button"]')).find(b => {
+            if (b.disabled || b.offsetWidth === 0) return false;
+            return (b.innerText || b.textContent || '').trim().toLowerCase().includes('attempt section');
+          });
+          if (attemptBtn) {
+            AutomatorCore.notify('Entering section: clicking Attempt Section...', 'info');
+            const target = attemptBtn.closest('button, a, [role="button"]') || attemptBtn;
+            ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+              target.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+            });
+            try { target.click(); } catch (e) {}
+            await DomUtils.sleep(2500);
+            continue;
+          }
+        }
+
+        // Palette inspection to detect questions and total count
+        const paletteBtns = Array.from(document.querySelectorAll(
+          '.question-palette button, .palette-item, .item-number, .q-item, button.mat-mini-fab, .question-btn, div[class*="palette"] button'
+        )).filter(b => b.offsetWidth > 0 || b.getClientRects().length > 0);
+
+        const totalQuestions = paletteBtns.length > 0 ? paletteBtns.length : 20;
+
+        // Current question extraction
+        const currentTitleEl = document.querySelector(
+          '.question-text, .question-title, .problem-statement, .q-text, .question, h2, h3, h4, [class*="questionText"], [class*="question-desc"], .content-card'
+        );
+        const currentQText = currentTitleEl ? (currentTitleEl.innerText || currentTitleEl.textContent || '').trim() : '';
+
+        // Solve current visible question
         const containers = this.findQuestionContainers();
         if (containers.length > 0) {
           for (const c of containers) {
@@ -726,39 +783,73 @@
           await this.solveSingleQuestion(document);
         }
 
+        if (currentQText) {
+          answeredQuestions.add(currentQText);
+        }
+
+        AutomatorCore.updateHUD(
+          `Solved ${answeredQuestions.size}/${totalQuestions} Questions`,
+          Math.min(95, Math.round((answeredQuestions.size / totalQuestions) * 100))
+        );
         await DomUtils.sleep(300);
 
-        // Next or Submit
+        // Try Next / Save & Next button
         const nextBtn = this.findNextQuestionButton();
-        if (nextBtn && !nextBtn.disabled) {
-          nextBtn.click();
-          await DomUtils.sleep(800);
+        if (nextBtn && !nextBtn.disabled && nextBtn.offsetWidth > 0) {
+          const clickTarget = nextBtn.closest('button, a, div[role="button"]') || nextBtn;
+          ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+            clickTarget.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+          });
+          try { clickTarget.click(); } catch (e) {}
+          await DomUtils.sleep(900);
+          consecutiveNoNextCount = 0;
           continue;
         }
 
-        const submitBtn = this.findSubmitOrFinishButton();
-        if (submitBtn && !submitBtn.disabled) {
-          AutomatorCore.notify('Submitting IAP contest...', 'info');
-          submitBtn.click();
-          await DomUtils.sleep(400);
-          await this.confirmSubmitDialogIfPresent();
-          await DomUtils.sleep(2000);
-          await this.scrapeAndSaveReviewResults();
-          try { window.parent.postMessage({ type: 'SPEEDO_IAP_COMPLETED' }, '*'); } catch (e) {}
-          return;
+        // If Next button not found or disabled, advance via Question Palette!
+        if (paletteBtns.length > 0) {
+          const nextPalette = paletteBtns.find(b => {
+            const cls = (b.className || '').toLowerCase();
+            return !cls.includes('active') && !cls.includes('current') && !cls.includes('selected') && !b.disabled;
+          });
+          if (nextPalette) {
+            AutomatorCore.notify(`Advancing via question palette: ${nextPalette.innerText.trim()}...`, 'info');
+            ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+              nextPalette.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+            });
+            try { nextPalette.click(); } catch (e) {}
+            await DomUtils.sleep(900);
+            consecutiveNoNextCount = 0;
+            continue;
+          }
         }
 
-        // Check for question palette buttons (e.g. 1, 2, 3...)
-        const paletteBtns = Array.from(document.querySelectorAll('.question-palette button, .palette-item, .item-number, .q-item'));
-        const nextPalette = paletteBtns.find(b => !b.classList.contains('active') && !b.classList.contains('answered') && !b.disabled);
-        if (nextPalette) {
-          nextPalette.click();
-          await DomUtils.sleep(800);
-          continue;
+        // ONLY allow submit when ALL questions are completed!
+        // NEVER submit when only 1 question has been answered!
+        const canSubmit = (paletteBtns.length > 0 && answeredQuestions.size >= paletteBtns.length) ||
+                          answeredQuestions.size >= totalQuestions ||
+                          (consecutiveNoNextCount >= 3 && answeredQuestions.size >= 10);
+
+        if (canSubmit) {
+          const submitBtn = this.findSubmitOrFinishButton();
+          if (submitBtn && !submitBtn.disabled) {
+            AutomatorCore.notify('All questions completed. Submitting IAP contest...', 'info');
+            const submitTarget = submitBtn.closest('button, a, div[role="button"]') || submitBtn;
+            ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+              submitTarget.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+            });
+            try { submitTarget.click(); } catch (e) {}
+            await DomUtils.sleep(500);
+            await this.confirmSubmitDialogIfPresent();
+            await DomUtils.sleep(2500);
+            await this.scrapeAndSaveReviewResults();
+            try { window.parent.postMessage({ type: 'SPEEDO_IAP_COMPLETED' }, '*'); } catch (e) {}
+            return;
+          }
         }
 
-        // Wait before next poll tick instead of terminating prematurely
-        await DomUtils.sleep(1200);
+        consecutiveNoNextCount++;
+        await DomUtils.sleep(1000);
       }
     },
 

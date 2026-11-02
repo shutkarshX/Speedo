@@ -1,5 +1,7 @@
 node_modules/
 *.log
 debug_logs.txt
+*.html
+*summary.json
 tools/
 .taste-skill/

@@ -42,7 +42,41 @@
     return nativeOpen ? nativeOpen.call(window, url, target, features) : null;
   };
 
-  // 4. Intercept assessment and quiz API responses to capture answer payloads
+  // 4. Permanently neutralize fullscreen traps & spoof fullscreen state to satisfy proctoring checks
+  try {
+    Element.prototype.requestFullscreen = function() {
+      console.log('[Page Guard] Intercepted and neutralized requestFullscreen');
+      return Promise.resolve();
+    };
+    if (Element.prototype.webkitRequestFullscreen) {
+      Element.prototype.webkitRequestFullscreen = function() {
+        return Promise.resolve();
+      };
+    }
+    document.exitFullscreen = function() { return Promise.resolve(); };
+    if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen = function() { return Promise.resolve(); };
+    }
+
+    Object.defineProperty(document, 'fullscreenElement', {
+      get: () => document.documentElement,
+      configurable: true
+    });
+    Object.defineProperty(document, 'webkitFullscreenElement', {
+      get: () => document.documentElement,
+      configurable: true
+    });
+    Object.defineProperty(document, 'fullscreen', {
+      get: () => true,
+      configurable: true
+    });
+    Object.defineProperty(document, 'webkitIsFullScreen', {
+      get: () => true,
+      configurable: true
+    });
+  } catch (e) {}
+
+  // 5. Intercept assessment and quiz API responses to capture answer payloads
   function extractAssessmentAnswers(payload) {
     const extracted = [];
     function scan(obj) {
