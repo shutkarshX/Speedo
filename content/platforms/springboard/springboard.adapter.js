@@ -20,6 +20,8 @@
     matches(url = window.location.href) {
       return url.includes('onwingspan.com') || 
              url.includes('infyspringboard') ||
+             url.includes('infosysapps.com') ||
+             url.includes('/contest/') ||
              url.includes('/app/toc/lex_') ||
              url.includes('/app/viewer/') ||
              url.includes('/viewer/');

@@ -54,6 +54,7 @@ window.AutomatorCore = (function () {
    * Floating HUD controls
    */
   function showHUD(initialText, onStop) {
+    if (window !== window.top) return;
     if (hudElement) hudElement.remove();
 
     hudElement = document.createElement('div');

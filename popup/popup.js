@@ -105,12 +105,24 @@ sendTabMessage('GET_STATUS').then((response) => {
 
 if (btnCapture) {
   btnCapture.addEventListener('click', async () => {
-    appendLog('Exporting DOM snapshot...', 'info');
-    const res = await sendTabMessage('CAPTURE_PAGE');
-    if (res && res.success) {
-      appendLog('DOM snapshot delivered to bridge.', 'info');
-    } else {
-      appendLog('Snapshot failed: course tab disconnected.', 'error');
+    appendLog('Exporting DOM snapshot (all frames)...', 'info');
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab && tab.id) {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id, allFrames: true },
+          func: () => {
+            if (window.AutomatorCore && typeof window.AutomatorCore.captureAndSendPage === 'function') {
+              window.AutomatorCore.captureAndSendPage();
+            }
+          }
+        });
+        appendLog('DOM snapshots delivered to bridge.', 'info');
+      } else {
+        await sendTabMessage('CAPTURE_PAGE');
+      }
+    } catch (e) {
+      await sendTabMessage('CAPTURE_PAGE');
     }
   });
 }

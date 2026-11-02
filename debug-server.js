@@ -42,8 +42,12 @@ const server = http.createServer((req, res) => {
         if (req.url === '/dump') {
           console.log(`[Bridge Server] Received full page dump from: ${data.url || 'unknown'}`);
           
+          const isIap = data.url && (data.url.includes('iap') || data.url.includes('contest') || data.url.includes('infosysapps'));
+          const targetHtmlFile = isIap ? path.join(DUMP_DIR, 'iap_dump.html') : HTML_FILE;
+          const targetSummaryFile = isIap ? path.join(DUMP_DIR, 'iap_summary.json') : SUMMARY_FILE;
+
           if (data.html) {
-            fs.writeFileSync(HTML_FILE, data.html, 'utf8');
+            fs.writeFileSync(targetHtmlFile, data.html, 'utf8');
           }
 
           const summary = {
@@ -55,7 +59,7 @@ const server = http.createServer((req, res) => {
             buttons: data.buttons || [],
             questionsFound: data.questions || []
           };
-          fs.writeFileSync(SUMMARY_FILE, JSON.stringify(summary, null, 2), 'utf8');
+          fs.writeFileSync(targetSummaryFile, JSON.stringify(summary, null, 2), 'utf8');
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: true, message: 'Dump saved successfully.' }));
