@@ -8,7 +8,7 @@
  * - Hands-on coding exercises fast-skip (remote sandbox bypass)
  * - Article reading & Assessment quizzes
  * - "Mark as Complete" with dynamic Angular Material Dialog confirmation
- * - Strictly forward-only module and unit progression (guaranteed zero backward jumps)
+ * - Strictly forward-only module and unit progression (guaranteed zero backward jumps, zero skipping)
  */
 (function () {
   const SpringboardAdapter = {
@@ -428,6 +428,65 @@
     },
 
     /**
+     * Robust click dispatcher that triggers full mouse/pointer events across Angular CDK tree nodes
+     */
+    clickTreeNode(node) {
+      if (!node) return false;
+      try {
+        if (typeof node.scrollIntoView === 'function') {
+          node.scrollIntoView({ block: 'nearest' });
+        }
+      } catch (e) {}
+
+      const targets = [
+        node.querySelector('.content-title'),
+        node.querySelector('.expand-button'),
+        node.querySelector('ws-viewer-icon'),
+        node
+      ].filter(Boolean);
+
+      for (const target of targets) {
+        try {
+          ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(type => {
+            target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+          });
+          target.click();
+        } catch (e) {}
+      }
+
+      return true;
+    },
+
+    /**
+     * Expands a collapsed module folder in the TOC and waits dynamically for it to expand
+     */
+    async expandFolder(folderNode) {
+      if (!folderNode || folderNode.getAttribute('aria-expanded') === 'true') {
+        return true;
+      }
+
+      const expander = folderNode.querySelector('.expand-button') || 
+                       folderNode.querySelector('.toc-expand-icon') || 
+                       folderNode;
+
+      ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(type => {
+        expander.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      });
+      try { expander.click(); } catch (e) {}
+
+      const startTime = Date.now();
+      while (Date.now() - startTime < 2500) {
+        if (!AutomatorCore.isRunning) return false;
+        if (folderNode.getAttribute('aria-expanded') === 'true') {
+          await DomUtils.sleep(150);
+          return true;
+        }
+        await DomUtils.sleep(50);
+      }
+      return false;
+    },
+
+    /**
      * Resolves the current active TOC tree node index in document.querySelectorAll('mat-tree-node')
      */
     async getCurrentTocNodeIndex() {
@@ -472,24 +531,8 @@
     },
 
     /**
-     * Dynamically wait for newly expanded Angular Material tree nodes to mount
-     */
-    async waitForTreeChildrenToMount(previousCount, maxWaitMs = 1200) {
-      const startTime = Date.now();
-      while (Date.now() - startTime < maxWaitMs) {
-        if (!AutomatorCore.isRunning) return;
-        const currentCount = document.querySelectorAll('mat-tree-node').length;
-        if (currentCount > previousCount) {
-          await DomUtils.sleep(100);
-          return;
-        }
-        await DomUtils.sleep(50);
-      }
-    },
-
-    /**
      * Advances STRICTLY FORWARD to the next slide or module in the TOC tree.
-     * Never jumps backward to earlier modules or already-visited slides.
+     * Never jumps backward to earlier modules, and NEVER skips past the next module.
      */
     async advanceForwardViaToc() {
       if (!AutomatorCore.isRunning) return false;
@@ -535,41 +578,38 @@
           AutomatorCore.updateHUD(`Opening: ${folderTitle}`, 60);
 
           // 1. Expand folder if collapsed
-          if (node.getAttribute('aria-expanded') !== 'true') {
-            const expander = node.querySelector('.toc-expand-icon, .expand-button') || node;
-            expander.click();
-            await this.waitForTreeChildrenToMount(allNodes.length, 1200);
-          }
+          await this.expandFolder(node);
 
-          // 2. Re-query all nodes to pick up newly mounted children
+          // 2. Re-query all nodes to locate its child slides
           const refreshedNodes = Array.from(document.querySelectorAll('mat-tree-node'));
-          const newFolderPos = refreshedNodes.indexOf(node);
-          const startSearch = newFolderPos !== -1 ? newFolderPos + 1 : i + 1;
+          const folderPos = refreshedNodes.indexOf(node);
+          const startSearch = folderPos !== -1 ? folderPos + 1 : i + 1;
 
-          // 3. Find the first child slide in this module
+          // 3. Find and click the first child slide in this module
           for (let j = startSearch; j < refreshedNodes.length; j++) {
             const childNode = refreshedNodes[j];
             const childIsFolder = childNode.getAttribute('level') === '0' || 
                                   childNode.querySelector('.toc-expand-icon') !== null;
             if (childIsFolder) {
-              // Reached next folder without finding a slide in this one
+              // Reached next folder without a slide in this one
               break;
             }
 
             const slideTitle = (childNode.querySelector('.content-title')?.innerText || childNode.innerText || 'Slide').replace(/[\n\r]+/g, ' ').trim();
             AutomatorCore.notify(`🚀 Opening first slide in "${folderTitle}": "${slideTitle}"...`, 'info');
-            const clickable = childNode.querySelector('.content-title, .expand-button') || childNode;
-            clickable.click();
+            this.clickTreeNode(childNode);
             return true;
           }
-          continue;
+
+          // If child slide not immediately found, click folder directly to navigate
+          this.clickTreeNode(node);
+          return true;
         }
 
         // It is a subsequent slide in the current module!
         const slideTitle = (node.querySelector('.content-title')?.innerText || node.innerText || `Slide ${i}`).replace(/[\n\r]+/g, ' ').trim();
-        AutomatorCore.notify(`➡️ Advancing to next slide in module: "${slideTitle}"...`, 'info');
-        const clickable = node.querySelector('.content-title, .expand-button') || node;
-        clickable.click();
+        AutomatorCore.notify(`➡️ Advancing to next slide: "${slideTitle}"...`, 'info');
+        this.clickTreeNode(node);
         return true;
       }
 
