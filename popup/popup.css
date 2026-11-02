@@ -166,6 +166,27 @@ body {
   cursor: not-allowed;
 }
 
+.btn-secondary {
+  background-color: var(--raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: var(--control);
+  border-color: var(--muted);
+  transform: translateY(-0.5px);
+}
+
+.btn-secondary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .btn-destructive {
   background-color: transparent;
   color: var(--negative);
