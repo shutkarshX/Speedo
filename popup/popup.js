@@ -8,6 +8,14 @@ const platformBadge = document.getElementById('platformBadge');
 const logOutput = document.getElementById('logOutput');
 const apiKeyInput = document.getElementById('apiKeyInput');
 const btnSaveKey = document.getElementById('btnSaveKey');
+const btnOpenGeminiTab = document.getElementById('btnOpenGeminiTab');
+
+if (btnOpenGeminiTab) {
+  btnOpenGeminiTab.addEventListener('click', () => {
+    chrome.tabs.create({ url: 'https://gemini.google.com/app', active: true });
+    appendLog('Opened Gemini tab for free browser AI solving.', 'info');
+  });
+}
 
 if (apiKeyInput && btnSaveKey) {
   chrome.storage.local.get(['geminiApiKey'], (res) => {

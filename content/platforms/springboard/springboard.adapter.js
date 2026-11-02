@@ -436,16 +436,17 @@
         });
 
         if (aiRes && aiRes.success) {
+          const methodLabel = aiRes.method === 'web_tab' ? 'Gemini Web Tab' : 'Gemini AI';
           if (Array.isArray(aiRes.answerIndices) && aiRes.answerIndices.length > 0) {
             for (const idx of aiRes.answerIndices) {
               if (optionEls[idx]) try { optionEls[idx].click(); } catch (e) {}
             }
-            AutomatorCore.notify(`Answered via Gemini AI: options [${aiRes.answerIndices.join(', ')}]`, 'info');
+            AutomatorCore.notify(`Answered via ${methodLabel}: options [${aiRes.answerIndices.join(', ')}]`, 'info');
             await AutomatorCore.saveAnswerToCache(rawQuestion, aiRes.answerIndices.map(i => optionTexts[i]), aiRes.answerIndices);
             return true;
           } else if (aiRes.answerIndex !== undefined && optionEls[aiRes.answerIndex]) {
             try { optionEls[aiRes.answerIndex].click(); } catch (e) {}
-            AutomatorCore.notify(`Answered via Gemini AI: option ${aiRes.answerIndex + 1}`, 'info');
+            AutomatorCore.notify(`Answered via ${methodLabel}: option ${aiRes.answerIndex + 1}`, 'info');
             await AutomatorCore.saveAnswerToCache(rawQuestion, [optionTexts[aiRes.answerIndex]], [aiRes.answerIndex]);
             return true;
           }

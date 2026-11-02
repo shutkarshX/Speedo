@@ -59,6 +59,138 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
 });
 
+// Helper: Automate open Gemini / ChatGPT web tab with zero API key
+async function solveViaAiWebTab(promptText, isMulti) {
+  const tabs = await chrome.tabs.query({
+    url: ['*://gemini.google.com/*', '*://chatgpt.com/*']
+  });
+
+  let targetTab = null;
+  let isGemini = true;
+
+  if (tabs.length > 0) {
+    targetTab = tabs[0];
+    isGemini = (targetTab.url || '').includes('gemini.google.com');
+  } else {
+    targetTab = await chrome.tabs.create({
+      url: 'https://gemini.google.com/app',
+      active: false
+    });
+    isGemini = true;
+
+    await new Promise((resolve) => {
+      const listener = (tid, info) => {
+        if (tid === targetTab.id && info.status === 'complete') {
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve();
+        }
+      };
+      chrome.tabs.onUpdated.addListener(listener);
+      setTimeout(resolve, 8000);
+    });
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+
+  const execResults = await chrome.scripting.executeScript({
+    target: { tabId: targetTab.id },
+    func: async (prompt, isGeminiTarget) => {
+      function findInputElement() {
+        if (isGeminiTarget) {
+          const rich = document.querySelector('rich-textarea');
+          if (rich) {
+            const ed = rich.querySelector('div[contenteditable="true"], p, textarea');
+            if (ed) return ed;
+          }
+          return document.querySelector('div[contenteditable="true"], textarea.text-input, textarea');
+        } else {
+          return document.querySelector('#prompt-textarea, textarea, div[contenteditable="true"]');
+        }
+      }
+
+      const input = findInputElement();
+      if (!input) {
+        return { success: false, error: 'AI prompt input not found. Ensure account is signed in.' };
+      }
+
+      const prevResponses = document.querySelectorAll(
+        isGeminiTarget 
+          ? '.model-response-text, message-content, [class*="response-container"], .markdown'
+          : '[data-message-author-role="assistant"], .markdown'
+      );
+      const prevCount = prevResponses.length;
+
+      input.focus();
+      if (input.tagName === 'TEXTAREA' || input.tagName === 'INPUT') {
+        input.value = prompt;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      } else {
+        input.innerHTML = `<p>${prompt.replace(/\n/g, '<br>')}</p>`;
+        input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+      }
+
+      await new Promise((r) => setTimeout(r, 250));
+
+      function findSendButton() {
+        const btns = Array.from(document.querySelectorAll('button'));
+        return btns.find((b) => {
+          const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+          const testid = (b.getAttribute('data-testid') || '').toLowerCase();
+          const cls = (b.className || '').toLowerCase();
+          return (
+            aria.includes('send') || 
+            testid.includes('send') || 
+            cls.includes('send') || 
+            aria.includes('submit')
+          ) && !b.disabled;
+        });
+      }
+
+      const sendBtn = findSendButton();
+      if (sendBtn) {
+        sendBtn.click();
+      } else {
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+      }
+
+      const startTime = Date.now();
+      let lastText = '';
+
+      while (Date.now() - startTime < 25000) {
+        await new Promise((r) => setTimeout(r, 700));
+
+        const stopBtn = document.querySelector('button[aria-label*="Stop" i], [data-testid="stop-button"]');
+        if (stopBtn) continue;
+
+        const currentResponses = document.querySelectorAll(
+          isGeminiTarget 
+            ? '.model-response-text, message-content, [class*="response-container"], .markdown'
+            : '[data-message-author-role="assistant"], .markdown'
+        );
+
+        if (currentResponses.length > prevCount) {
+          const latest = currentResponses[currentResponses.length - 1];
+          const text = (latest.innerText || latest.textContent || '').trim();
+          if (text.length > 0) {
+            lastText = text;
+            await new Promise((r) => setTimeout(r, 500));
+            const settled = (latest.innerText || latest.textContent || '').trim();
+            return { success: true, text: settled || lastText };
+          }
+        }
+      }
+
+      if (lastText) {
+        return { success: true, text: lastText };
+      }
+      return { success: false, error: 'Response generation timed out on AI web tab.' };
+    },
+    args: [promptText, isGemini]
+  });
+
+  return execResults?.[0]?.result || { success: false, error: 'Tab execution failed.' };
+}
+
 // Central Message Broker
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // 1. Open Player Tab via Native Extension API (Bypasses 100% of Chrome Popup Blockers)
@@ -274,39 +406,53 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // 5. Direct In-Browser Gemini AI Question Solver (Universal Fallback)
+  // 5. Intelligent Question Solver (Direct API or Browser Web Tab Bridge)
   if (message.action === 'SOLVE_WITH_AI') {
     const { question, options, isMulti } = message.payload || {};
+    const expectsMulti = isMulti || (question && /select all|choose all|multiple/i.test(question));
+    const promptText = expectsMulti
+      ? `Solve this assessment question. Select ALL correct option indices (0-based).\nQuestion: ${question}\nOptions:\n${(options || []).map((o, idx) => `${idx}: ${o}`).join('\n')}\nRespond with ONLY the comma-separated correct indices (e.g., "0, 2" or "1").`
+      : `Solve this multiple choice question. Select the single best option index (0-based).\nQuestion: ${question}\nOptions:\n${(options || []).map((o, idx) => `${idx}: ${o}`).join('\n')}\nRespond with ONLY the single digit of the correct option index (e.g., 0 or 1 or 2).`;
+
     chrome.storage.local.get(['geminiApiKey'], async (res) => {
       const apiKey = res?.geminiApiKey;
-      if (!apiKey) {
-        sendResponse({ success: false, reason: 'NO_API_KEY' });
-        return;
-      }
-      try {
-        const expectsMulti = isMulti || (question && /select all|choose all|multiple/i.test(question));
-        const promptText = expectsMulti
-          ? `Solve this assessment question. Select ALL correct option indices (0-based).\nQuestion: ${question}\nOptions:\n${(options || []).map((o, idx) => `${idx}: ${o}`).join('\n')}\nRespond with ONLY the comma-separated correct indices (e.g., "0, 2" or "1").`
-          : `Solve this multiple choice question. Select the single best option index (0-based).\nQuestion: ${question}\nOptions:\n${(options || []).map((o, idx) => `${idx}: ${o}`).join('\n')}\nRespond with ONLY the single digit of the correct option index (e.g., 0 or 1 or 2).`;
 
-        const apiResp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: promptText }] }],
-            generationConfig: { temperature: 0.0, maxOutputTokens: 20 }
-          })
-        });
-        const data = await apiResp.json();
-        const rawAnswer = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-        const matches = [...rawAnswer.matchAll(/\d+/g)].map(m => parseInt(m[0], 10));
-        if (matches.length > 0) {
-          sendResponse({ success: true, answerIndex: matches[0], answerIndices: matches });
-        } else {
-          sendResponse({ success: false, reason: 'PARSE_FAILED', raw: rawAnswer });
+      // Tier 2A: Direct In-Browser Gemini API (if user configured API key)
+      if (apiKey) {
+        try {
+          const apiResp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: promptText }] }],
+              generationConfig: { temperature: 0.0, maxOutputTokens: 20 }
+            })
+          });
+          const data = await apiResp.json();
+          const rawAnswer = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+          const matches = [...rawAnswer.matchAll(/\d+/g)].map(m => parseInt(m[0], 10));
+          if (matches.length > 0) {
+            sendResponse({ success: true, answerIndex: matches[0], answerIndices: matches, method: 'gemini_api' });
+            return;
+          }
+        } catch (apiErr) {
+          console.warn('[ServiceWorker] Direct API failed, falling back to Web Tab:', apiErr.message);
         }
-      } catch (err) {
-        sendResponse({ success: false, error: err.message });
+      }
+
+      // Tier 2B: Free Browser Web Tab Bridge (gemini.google.com / chatgpt.com)
+      try {
+        const tabResult = await solveViaAiWebTab(promptText, expectsMulti);
+        if (tabResult && tabResult.success && tabResult.text) {
+          const matches = [...tabResult.text.matchAll(/\d+/g)].map(m => parseInt(m[0], 10));
+          if (matches.length > 0) {
+            sendResponse({ success: true, answerIndex: matches[0], answerIndices: matches, method: 'web_tab' });
+            return;
+          }
+        }
+        sendResponse({ success: false, reason: tabResult?.error || 'WEB_TAB_PARSE_FAILED' });
+      } catch (tabErr) {
+        sendResponse({ success: false, error: tabErr.message });
       }
     });
     return true; // async sendResponse

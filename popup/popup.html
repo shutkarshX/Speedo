@@ -56,9 +56,14 @@
 
     <!-- Settings Drawer (Optional AI Solver) -->
     <details class="settings-drawer">
-      <summary class="settings-summary">Settings</summary>
+      <summary class="settings-summary">AI Solver Settings</summary>
       <div class="settings-body">
-        <label for="apiKeyInput" class="settings-label">Gemini API Key (Optional)</label>
+        <div class="settings-hint">
+          Auto AI: Keep <strong class="text-accent">gemini.google.com</strong> open in any tab. SPEEDO solves questions for free with zero setup.
+        </div>
+        <button id="btnOpenGeminiTab" class="btn-sm btn-outline">Launch Gemini Tab</button>
+        <div class="settings-divider"></div>
+        <label for="apiKeyInput" class="settings-label">Headless API Key (Optional)</label>
         <div class="settings-input-row">
           <input id="apiKeyInput" type="password" placeholder="AIzaSy..." class="input-text" autocomplete="off">
           <button id="btnSaveKey" class="btn-sm">Save</button>
