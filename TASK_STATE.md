@@ -5,9 +5,11 @@
 ---
 
 ## 📌 Current Status
-- **Current Phase:** Phase 5 — Multi-Module Pathway Auto-Runner Complete & Verified
-- **Target Platform:** FutureSkills Prime (`futureskillsprime.in`)
-- **Active Feature:** Pathway Multi-Module Auto-Runner & Player Auto-Completer
+- **Current Phase:** Phase 6 — Autonomous Multi-Tier Assessment & IAP Engine Complete
+- **Target Platforms:**
+  1. FutureSkills Prime (`futureskillsprime.in`) — 100% verified complete across 12 modules
+  2. Infosys Springboard (`infyspringboard.onwingspan.com` & `lex-iap.infosysapps.com`) — 100% course progression & autonomous assessment solver
+- **Taste Skill Standard:** Fully compliant with `data-terminal` tokens, 0 FAIL, 0 WARN via `lint.mjs`
 
 ---
 
@@ -19,44 +21,27 @@
   - Initialized clean MV3 extension boilerplate (`manifest.json`, `popup/`, `content/`, `background/`, `utils/`).
   - Started local live debug bridge server (`debug-server.js`) on `http://127.0.0.1:8765`.
 
-- [x] **Step 2: Target Website Specification**
-  - Captured live DOM dump (37 course units analyzed).
-  - Documented FutureSkills Prime completion endpoints, TOC structures, and mark-as-read mechanisms in `SITE_SPEC.md`.
+- [x] **Step 2: FutureSkills Prime Automation (Phase 1 - 5)**
+  - Completed all 12 modules and all 37 units verified via live DOM.
+  - Handled multi-module pathway auto-launching bypassing Chrome popup blockers.
 
-- [x] **Step 3: Core Content Script Automation Engine**
-  - Course completion reaches 100% verified via live DOM (`.compPrcnt: 100%`).
-  - Added clean 100% stop guard (`isCourse100Percent()`):
-    - When 100% is reached or final node is finished, it immediately stops all automation.
-    - Leaves page intact (no reloads, no window closing, no extra clicks).
-    - Displays celebratory "🎉 Course 100% Complete! Stopped." HUD banner.
+- [x] **Step 3: Infosys Springboard Engine (Wingspan / Lex LMS)**
+  - Automated all 275 slides in Python course.
+  - Built strictly forward-only module/unit navigation (no backward jumps).
+  - Fast-skipped remote coding sandboxes (`#focus_submit_handson`).
+  - Completed Video.js & HTML5 video units instantly.
+  - Auto-confirmed Angular Material "Mark as Complete" dialogs.
 
-- [x] **Step 4: Extension UI & Controls**
-  - Wired live communication between content script, popup, and bridge server.
-  - Added real-time log streaming in the extension popup.
-  - Added automatic hot-injection on reload: service worker and popup auto-inject scripts into open tabs so no manual page refresh is needed.
+- [x] **Step 4: Autonomous Multi-Tier Assessment & Quiz Engine (Self-Contained for all users)**
+  - **Tier 1 (Silent Network API Interceptor):** `page-guard.js` hooks `window.fetch` and `XMLHttpRequest`, intercepting question payloads and answers directly from contest/quiz APIs and caching them to `speedo_qa_cache`.
+  - **Tier 2 (In-Browser Gemini AI Solver):** Calls Gemini 1.5 Flash via `SOLVE_WITH_AI` message for intelligent question answering when answers are not exposed in payload; API key configurable via popup settings drawer.
+  - **Tier 3 (Retake / Feedback Loop Learning):** Automatically scrapes review/result screens after assessment submission, saving verified answers into `speedo_qa_cache` to score 100% on retake.
+  - **IAP Cross-Origin Iframe Execution:** `"all_frames": true` in `manifest.json` enables direct DOM execution inside `lex-iap.infosysapps.com` assessment contests.
 
-- [x] **Step 5: Testing & Anti-Detection / Edge Cases**
-  - Added Stuck-Page Watchdog (`waitForSpinnerToClear(5000)`): detects if FutureSkills Prime freezes on `.mainLoader` or `.loader_wrapper`.
-  - Added Automatic Recovery & Auto-Resume (`triggerAutoRecoveryRefresh`): saves state to `chrome.storage.local`, auto-refreshes the stuck tab, and automatically resumes automation upon reload without requiring any user click.
-
-- [x] **Step 7: Fix Page Unresponsive Freeze & Rapid Reload Loop**
-  - Identified root causes from live logs:
-    1. Aggressive 5s spinner reload watchdog triggered 5 full-page reloads in 4 minutes, causing memory exhaustion and Chrome "Page Unresponsive" warning.
-    2. Synchronous `window.alert` / `window.confirm` modal popups in LMS code (e.g. on Final Assignments) blocked Chrome's main thread.
-    3. `scrollIntoView({ behavior: 'smooth' })` caused animation frame thrashing during slide renders.
-  - Fixes applied:
-    - Replaced reload watchdog with DOM-cleanup: if spinner persists, cleans it from DOM without reloading.
-    - Neutralized all blocking native dialogs (`alert`, `confirm`, `prompt`) in the MAIN world.
-    - Stripped smooth-scroll animations from `DomUtils.simulateClick` to prevent layout reflow freezes.
-    - Added `knownCompleted` memory to avoid duplicate launches of finished modules.
-
-- [x] **Step 8: Bypass Chrome Popup Blocker for Next Module Auto-Launch**
-  - Problem: When the Pathway dashboard attempted to launch the next module automatically (without an explicit user gesture), Chrome's popup blocker silently suppressed `window.open(...)`.
-  - Fix:
-    1. Intercepted `window.open` in the page's MAIN world and dispatched `CA_OPEN_PLAYER_TAB`.
-    2. Background service worker handles `OPEN_PLAYER_TAB` using `chrome.tabs.create({ url, active: true })`.
-    3. `chrome.tabs.create` runs with native extension privileges and CANNOT be blocked by Chrome's popup blocker.
-    4. Simultaneously invokes `window.getsubdata(id)` in the MAIN world to ensure FutureSkills Prime triggers the launch properly.
+- [x] **Step 5: Taste Skill Design Compliance**
+  - Applied `Leonxlnx/taste-skill` `data-terminal` design tokens across popup, HUD, and components.
+  - Zero cartoon emojis, zero resting box-shadows, zero purple gradients.
+  - Verified with `lint.mjs`: `0 FAIL, 0 WARN`.
 
 - [x] **Step 9: Fix False Video Detection & Infinite Player Freeze**
   - Root Cause: `hasVideoOnSlide()` checked `activeTOC.innerText.includes('video')`. In the course *"Adobe's Storytelling through short-form video"*, every unit text included "video", triggering `window.on_video_ended()` on uninitialized slides while still loading, pegging the thread in an infinite loop.
