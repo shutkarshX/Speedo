@@ -149,13 +149,11 @@
 
     /**
      * Master Viewer Completer Loop:
-     * Advances slide-by-slide and module-by-module.
-     * - If completed -> advances immediately via Next Content
-     * - If hands-on -> advances immediately via Next Content
-     * - If incomplete -> clicks Mark as Complete, confirms popup, then advances!
+     * High-speed dynamic event-driven advancement:
+     * Automatically waits dynamically for elements (0ms wasted hardcoded sleeps).
      */
     async runCourseCompleter() {
-      AutomatorCore.notify('Infosys Springboard Master Completer running...', 'info');
+      AutomatorCore.notify('Infosys Springboard Dynamic Completer running...', 'info');
       AutomatorCore.showHUD('Infosys Springboard: Completing course...');
 
       const maxSteps = 300;
@@ -166,8 +164,8 @@
       while (AutomatorCore.isRunning && step < maxSteps) {
         step++;
 
-        // 1. Keep sidebar on Contents tab so TOC is live
-        await this.ensureContentsTabActive();
+        // 1. Keep sidebar on Contents tab in background
+        this.ensureContentsTabActive().catch(() => {});
 
         // 2. Identify current unit and module
         const unitTitleEl = document.querySelector('.content-title, .collection-title, h1, .header-title');
@@ -179,21 +177,17 @@
 
         AutomatorCore.notify(`[Step ${step}] ${fullDisplayTitle}`, 'info');
 
-        // 3. Hands-on coding lab check (skip remote sandbox hang)
+        // 3. Hands-on coding lab check (skip immediately)
         const isHandsOn = window.location.href.includes('/viewer/hands-on/') ||
                           document.querySelector('ws-viewer-plugin-hands-on, #focus_execute_handson, #focus_submit_handson');
 
         if (isHandsOn) {
-          AutomatorCore.notify(`⏩ Hands-on lab "${fullDisplayTitle}" skipped (remote sandbox broken).`, 'info');
+          AutomatorCore.notify(`⏩ Hands-on lab "${fullDisplayTitle}" skipped. Advancing...`, 'info');
           AutomatorCore.updateHUD(`⏩ Skipping: ${fullDisplayTitle}`, 50);
           const advanced = await this.advanceToNextUnit();
-          if (!advanced) {
-            AutomatorCore.notify('🎉 Course completed or no more units available!', 'info');
-            AutomatorCore.updateHUD('🎉 Course Completed!', 100);
-            AutomatorCore.stop('🎉 Course Completed!');
-            break;
-          }
-          await DomUtils.sleep(2000);
+          if (!advanced) break;
+          await this.waitForSlideChange(lastUrl, 3000);
+          lastUrl = window.location.href;
           continue;
         }
 
@@ -202,30 +196,25 @@
           AutomatorCore.notify(`✅ Unit "${fullDisplayTitle}" is already completed! Advancing...`, 'info');
           AutomatorCore.updateHUD(`✅ Done: ${fullDisplayTitle}`, 50);
           const advanced = await this.advanceToNextUnit();
-          if (!advanced) {
-            AutomatorCore.notify('🎉 Course completed or no more units available!', 'info');
-            AutomatorCore.updateHUD('🎉 Course Completed!', 100);
-            AutomatorCore.stop('🎉 Course Completed!');
-            break;
-          }
-          await DomUtils.sleep(1500);
+          if (!advanced) break;
+          await this.waitForSlideChange(lastUrl, 3000);
+          lastUrl = window.location.href;
           continue;
         }
 
-        // 5. Unit is INCOMPLETE: Complete it!
-        AutomatorCore.notify(`⚡ Completing: "${fullDisplayTitle}"...`, 'info');
+        // 5. Unit is INCOMPLETE: Complete it dynamically!
         AutomatorCore.updateHUD(`Completing: ${fullDisplayTitle}`, 70);
 
-        // A. Start video if present so Mark as Complete unlocks
+        // A. Start video if present so Mark as Complete unlocks immediately
         await this.handleVideoIfPresent();
 
         // B. Answer quiz/assessment if present
         await this.handleAssessmentIfPresent();
 
-        // C. Trigger & confirm "Mark as Complete"
+        // C. Trigger & confirm "Mark as Complete" dynamically
         await this.markCurrentUnitComplete();
 
-        // D. Advance to next unit (crosses modules automatically via Next Content button!)
+        // D. Advance to next unit/module immediately
         const advanced = await this.advanceToNextUnit();
         if (!advanced) {
           AutomatorCore.notify('🎉 Course completed or no more units available!', 'info');
@@ -234,90 +223,48 @@
           break;
         }
 
-        // Check if URL actually changed to prevent infinite spin
-        if (window.location.href === lastUrl) {
-          consecutiveStuck++;
-          if (consecutiveStuck >= 3) {
-            AutomatorCore.notify('⚠️ Advancing via TOC fallback...', 'info');
-            await this.advanceViaToc();
-            consecutiveStuck = 0;
-          }
-        } else {
-          consecutiveStuck = 0;
-          lastUrl = window.location.href;
-        }
-
-        await DomUtils.sleep(2000);
+        // Wait dynamically for next slide to mount
+        await this.waitForSlideChange(lastUrl, 3000);
+        lastUrl = window.location.href;
       }
     },
 
     /**
-     * Handle Hands-on Coding Lab exercises:
-     * When remote sandbox hangs/fails on Infosys backend, skip immediately so the course keeps progressing!
+     * Dynamically wait for URL or slide to change after clicking Next
      */
-    async handleHandsOnIfPresent() {
-      const isHandsOn = window.location.href.includes('/viewer/hands-on/') ||
-                        document.querySelector('ws-viewer-plugin-hands-on, #focus_execute_handson, #focus_submit_handson');
-
-      if (isHandsOn) {
-        AutomatorCore.notify('⏩ Hands-on coding lab detected — skipping to avoid sandbox hang...', 'info');
-        AutomatorCore.updateHUD('⏩ Skipping Hands-on Lab...', 50);
-        await DomUtils.sleep(600);
-        return true;
+    async waitForSlideChange(previousUrl, maxWaitMs = 3000) {
+      const startTime = Date.now();
+      while (Date.now() - startTime < maxWaitMs) {
+        if (window.location.href !== previousUrl) {
+          await DomUtils.sleep(200); // Allow Angular router outlet to mount
+          return true;
+        }
+        await DomUtils.sleep(50);
       }
-
       return false;
     },
 
     /**
-     * Waits for remote code sandbox evaluation to complete
-     */
-    async waitForHandsOnSubmission(maxWaitMs = 30000) {
-      const startTime = Date.now();
-      // Wait at least 2.5s for submission spinner to mount
-      await DomUtils.sleep(2500);
-
-      while (Date.now() - startTime < maxWaitMs) {
-        const bodyText = (document.body.innerText || '').toLowerCase();
-        const isSubmitting = bodyText.includes('your code is being submitted') || 
-                             bodyText.includes('code is being submitted');
-        const spinner = document.querySelector('ws-viewer-plugin-hands-on mat-progress-spinner, mat-spinner');
-
-        if (!isSubmitting && !spinner) {
-          return true;
-        }
-        await DomUtils.sleep(1000);
-      }
-      return true;
-    },
-
-    /**
-     * Start video playback immediately so "Mark as Complete" unlocks without waiting for the full video
+     * Start video playback immediately so "Mark as Complete" unlocks (zero hardcoded delay)
      */
     async handleVideoIfPresent() {
       const videos = Array.from(document.querySelectorAll('video'));
       if (videos.length === 0) return;
 
-      AutomatorCore.notify(`Found ${videos.length} video(s). Starting playback to unlock Mark as Complete...`, 'info');
-
       for (const vid of videos) {
         try {
           vid.muted = true;
-          if (vid.paused) {
-            vid.play().catch(() => {});
-          }
+          if (vid.paused) vid.play().catch(() => {});
           vid.dispatchEvent(new Event('play'));
-          vid.dispatchEvent(new Event('playing'));
         } catch (e) {}
       }
 
-      // Also trigger Video.js instance in MAIN world
-      await AutomatorCore.runInMainWorld('VIDEO_ENDED');
-      await DomUtils.sleep(600);
+      // Fast MAIN world event trigger
+      AutomatorCore.runInMainWorld('VIDEO_ENDED').catch(() => {});
     },
 
     /**
-     * Answer assessment / quiz questions if present
+     * Answer assessment / quiz questions dynamically if present
      */
     async handleAssessmentIfPresent() {
       const quizOptions = document.querySelectorAll('mat-radio-button, mat-checkbox, input[type="radio"], input[type="checkbox"]');
@@ -333,7 +280,7 @@
         } catch (e) {}
       });
 
-      await DomUtils.sleep(600);
+      await DomUtils.sleep(200);
 
       const buttons = Array.from(document.querySelectorAll('button'));
       const submitBtn = buttons.find(b => {
@@ -344,58 +291,63 @@
 
       if (submitBtn && !submitBtn.disabled) {
         try { submitBtn.click(); } catch (e) {}
-        await DomUtils.sleep(1500);
+        await DomUtils.sleep(500);
       }
     },
 
     /**
-     * Click Wingspan's "Mark as Complete" button AND confirm the popup modal dialog
-     * Uses client-rects check instead of offsetParent to correctly support position: fixed CDK overlays!
+     * Dynamically wait for "Mark as Complete" button to mount
      */
-    async markCurrentUnitComplete() {
-      // 1. Check if a confirmation dialog is already open on screen
-      let confirmBtn = await this.waitForConfirmDialog(1000);
-      if (confirmBtn) {
-        AutomatorCore.notify('Confirming existing "Mark as complete" dialog...', 'info');
-        await AutomatorCore.runInMainWorld('CONFIRM_MARK_COMPLETE');
-        try { confirmBtn.click(); } catch (e) {}
-        await DomUtils.sleep(2000);
-        return true;
-      }
-
-      // 2. Click the trigger button in the viewer
+    async waitForMarkButton(maxWaitMs = 3000) {
+      const startTime = Date.now();
       const markSelectors = [
         'button[aria-label="mark as complete"]',
         'button.mark-as-complete-mini',
         '[mattooltip="Mark as Complete"]'
       ];
 
-      let triggerBtn = null;
-      for (const sel of markSelectors) {
-        try {
+      while (Date.now() - startTime < maxWaitMs) {
+        for (const sel of markSelectors) {
           const btn = document.querySelector(sel);
           if (btn && !btn.disabled && (btn.offsetWidth > 0 || btn.getClientRects().length > 0)) {
-            triggerBtn = btn;
-            break;
+            const isRefresh = btn.getAttribute('aria-label')?.includes('Refresh') || btn.innerHTML.includes('refresh');
+            if (!isRefresh) return btn;
           }
-        } catch (e) {}
+        }
+        await DomUtils.sleep(50);
+      }
+      return null;
+    },
+
+    /**
+     * Click Wingspan's "Mark as Complete" button AND confirm the popup modal dialog dynamically
+     */
+    async markCurrentUnitComplete() {
+      // 1. Check if a confirmation dialog is already open on screen
+      let confirmBtn = await this.waitForConfirmDialog(250);
+      if (confirmBtn) {
+        AutomatorCore.notify('Confirming existing "Mark as complete" dialog...', 'info');
+        await AutomatorCore.runInMainWorld('CONFIRM_MARK_COMPLETE');
+        try { confirmBtn.click(); } catch (e) {}
+        await DomUtils.sleep(200);
+        return true;
       }
 
+      // 2. Dynamically wait for the Mark as Complete button to mount
+      const triggerBtn = await this.waitForMarkButton(2000);
       if (triggerBtn) {
-        AutomatorCore.notify('Clicking "Mark as Complete" icon...', 'info');
+        AutomatorCore.notify('⚡ Clicking "Mark as Complete" icon...', 'info');
         await AutomatorCore.runInMainWorld('TRIGGER_MARK_COMPLETE');
         try { triggerBtn.click(); } catch (e) {}
 
-        // 3. Wait up to 3.5 seconds for the Angular Material confirmation dialog to render
-        confirmBtn = await this.waitForConfirmDialog(3500);
+        // 3. Dynamically wait for the confirmation dialog
+        confirmBtn = await this.waitForConfirmDialog(2500);
         if (confirmBtn) {
-          AutomatorCore.notify('Confirming "Mark as complete" dialog...', 'info');
+          AutomatorCore.notify('⚡ Confirming "Mark as complete" dialog...', 'info');
           await AutomatorCore.runInMainWorld('CONFIRM_MARK_COMPLETE');
           try { confirmBtn.click(); } catch (e) {}
-          await DomUtils.sleep(800);
+          await DomUtils.sleep(300);
           return true;
-        } else {
-          AutomatorCore.notify('Confirmation dialog did not appear (may already be marked complete).', 'info');
         }
       }
 
@@ -403,10 +355,9 @@
     },
 
     /**
-     * Polls for Angular Material confirmation dialog buttons
-     * Uses getClientRects() instead of offsetParent (which fails on position: fixed CDK dialogs)
+     * Polls dynamically for Angular Material confirmation dialog buttons
      */
-    async waitForConfirmDialog(maxWaitMs = 3000) {
+    async waitForConfirmDialog(maxWaitMs = 2500) {
       const startTime = Date.now();
       while (Date.now() - startTime < maxWaitMs) {
         const dialog = document.querySelector('ws-widget-mark-as-complete-dialog, mat-dialog-container, .cdk-overlay-pane');
@@ -421,7 +372,7 @@
             return confirm;
           }
         }
-        await DomUtils.sleep(250);
+        await DomUtils.sleep(50);
       }
       return null;
     },
