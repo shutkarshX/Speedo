@@ -303,11 +303,7 @@
         await this.handleVideoIfPresent();
         if (!AutomatorCore.isRunning) break;
 
-        // B. Answer quiz/assessment if present
-        await this.handleAssessmentIfPresent();
-        if (!AutomatorCore.isRunning) break;
-
-        // B2. If IAP iframe is present, wait for autonomous solver to finish
+        // B. Handle Assessment / Quiz
         const iapIframe = document.querySelector('iframe#iap-iframe, iframe[src*="lex-iap"], iframe[src*="/contest/"]');
         if (iapIframe) {
           AutomatorCore.notify('IAP Assessment frame detected. Waiting for assessment solver...', 'info');
@@ -317,6 +313,10 @@
             }
           } catch (e) {}
           await this.waitForIapAssessmentCompletion();
+          if (!AutomatorCore.isRunning) break;
+        } else {
+          // Standard slide assessment / quiz
+          await this.handleAssessmentIfPresent();
           if (!AutomatorCore.isRunning) break;
         }
 
@@ -648,17 +648,22 @@
      * Autonomous IAP Contest Runner (Runs inside the IAP assessment iframe)
      */
     async runIapContestRunner() {
-      AutomatorCore.notify('Engaging IAP Contest Runner...', 'info');
+      AutomatorCore.setIsRunning(true);
+      try {
+        await chrome.storage.local.set({ springboardRunning: true });
+      } catch (e) {}
+      AutomatorCore.notify('Engaging IAP Contest Runner inside iframe...', 'info');
 
       // Dismiss proctoring warning if present
       await this.dismissProctoringFullscreenWarning();
 
       // 1. Handle pre-test Start / Resume / Attempt Section buttons
-      const allButtons = Array.from(document.querySelectorAll('button, a.btn, a, .btn'));
+      const allButtons = Array.from(document.querySelectorAll('button, a.btn, a, .btn, div[role="button"], span'));
       const startBtn = allButtons.find(b => {
-        if (b.disabled || b.offsetWidth === 0) return false;
+        if (b.disabled) return false;
         const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-        return txt.includes('attempt section') || 
+        return txt === 'attempt section' || 
+               txt.includes('attempt section') || 
                txt === 'start' || 
                txt === 'start assessment' || 
                txt === 'begin contest' || 
@@ -678,8 +683,8 @@
         await this.dismissProctoringFullscreenWarning();
 
         // Also check if Attempt Section button appeared inside sections list
-        const attemptBtn = Array.from(document.querySelectorAll('button, a')).find(b => {
-          if (b.disabled || b.offsetWidth === 0) return false;
+        const attemptBtn = Array.from(document.querySelectorAll('button, a, div[role="button"], span, .btn')).find(b => {
+          if (b.disabled) return false;
           return (b.innerText || b.textContent || '').trim().toLowerCase().includes('attempt section');
         });
         if (attemptBtn) {

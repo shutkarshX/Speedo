@@ -175,3 +175,9 @@
 .ca-banner-close-btn:hover {
   color: #ffffff;
 }
+
+/* Neutralize Springboard proctoring warning modal so it never blocks interaction */
+.proctoring-warning-holder {
+  display: none !important;
+  pointer-events: none !important;
+}
