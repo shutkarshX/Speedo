@@ -42,9 +42,16 @@ const server = http.createServer((req, res) => {
         if (req.url === '/dump') {
           console.log(`[Bridge Server] Received full page dump from: ${data.url || 'unknown'}`);
           
-          const isIap = data.url && (data.url.includes('iap') || data.url.includes('contest') || data.url.includes('infosysapps'));
-          const targetHtmlFile = isIap ? path.join(DUMP_DIR, 'iap_dump.html') : HTML_FILE;
-          const targetSummaryFile = isIap ? path.join(DUMP_DIR, 'iap_summary.json') : SUMMARY_FILE;
+          let targetHtmlFile = HTML_FILE;
+          let targetSummaryFile = SUMMARY_FILE;
+
+          if (data.url && (data.url.includes('infosysapps.com') || data.url.includes('/contest/'))) {
+            targetHtmlFile = path.join(DUMP_DIR, 'contest_dump.html');
+            targetSummaryFile = path.join(DUMP_DIR, 'contest_summary.json');
+          } else if (data.url && data.url.includes('viewer/iap')) {
+            targetHtmlFile = path.join(DUMP_DIR, 'viewer_iap_dump.html');
+            targetSummaryFile = path.join(DUMP_DIR, 'viewer_iap_summary.json');
+          }
 
           if (data.html) {
             fs.writeFileSync(targetHtmlFile, data.html, 'utf8');

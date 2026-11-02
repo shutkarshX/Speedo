@@ -529,7 +529,7 @@
     },
 
     /**
-     * Locate Submit / Finish / Complete button in assessment views
+     * Locate Submit / Finish / Complete button in assessment views (excluding contest finish)
      */
     findSubmitOrFinishButton(root = document) {
       const candidates = Array.from(root.querySelectorAll('button, a, div[role="button"]'));
@@ -537,15 +537,27 @@
         if (b.disabled || b.offsetWidth === 0) return false;
         const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
         const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-        return txt === 'finish test' || 
-               txt.includes('finish test') ||
-               txt === 'submit' || 
+        // Never allow generic submit to click "finish test"
+        if (txt.includes('finish test')) return false;
+        return txt === 'submit' || 
                txt === 'submit assessment' || 
                txt === 'finish' || 
                txt === 'end test' || 
                txt === 'check answer' ||
-               aria.includes('finish') ||
                aria.includes('submit');
+      });
+    },
+
+    /**
+     * Dedicated button finder for IAP contest final submission
+     */
+    findContestFinishButton(root = document) {
+      const candidates = Array.from(root.querySelectorAll('button, a, div[role="button"]'));
+      return candidates.find(b => {
+        if (b.disabled || b.offsetWidth === 0) return false;
+        const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+        const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+        return txt === 'finish test' || txt.includes('finish test') || txt === 'submit test' || aria.includes('finish test');
       });
     },
 
@@ -685,42 +697,47 @@
       // Dismiss proctoring warning if present
       await this.dismissProctoringFullscreenWarning();
 
-      const hasQuestionsOnScreen = () => {
-        return document.querySelector(
-          'mat-radio-button, mat-checkbox, input[type="radio"], input[type="checkbox"], .question-view, .contest-question, .question-palette, .palette-item, [class*="question"]'
-        ) !== null;
+      const areQuestionsMounted = () => {
+        const optionInputs = document.querySelectorAll(
+          'mat-radio-button, mat-checkbox, input[type="radio"], input[type="checkbox"], [role="radio"], [role="checkbox"], .mat-radio-button, .mat-checkbox'
+        );
+        return optionInputs.length > 0;
       };
 
       // 1. Enter section / Start test if questions are not yet visible
-      if (!hasQuestionsOnScreen()) {
-        const startSelectors = [
-          'button.mat-raised-button',
-          'button.mat-flat-button',
-          'button[mat-flat-button]',
-          'button[mat-raised-button]',
-          'button.btn',
-          'button',
-          'a.btn',
-          '[role="button"]'
-        ];
-        const allCandidates = Array.from(document.querySelectorAll(startSelectors.join(','))).filter(b => !b.disabled && b.offsetWidth > 0);
-        const startBtn = allCandidates.find(b => {
+      if (!areQuestionsMounted()) {
+        AutomatorCore.notify('Locating "Attempt Section" button...', 'info');
+        
+        let startBtn = null;
+        // Check standard buttons and cards first
+        const clickables = Array.from(document.querySelectorAll('button, a, [role="button"], mat-card, .mat-flat-button, .mat-raised-button, .btn, .card'));
+        startBtn = clickables.find(b => {
+          if (b.disabled || b.offsetWidth === 0) return false;
           const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-          return txt.includes('attempt section') || 
-                 txt === 'start' || 
-                 txt === 'start assessment' || 
-                 txt === 'begin contest' || 
-                 txt === 'take test' || 
-                 txt === 'continue';
+          return txt.includes('attempt section') || txt === 'attempt' || txt === 'start section' || txt === 'start assessment' || txt === 'begin contest';
         });
 
+        if (!startBtn) {
+          // Deep search across all elements for "attempt section"
+          const allElements = Array.from(document.querySelectorAll('*'));
+          for (const el of allElements) {
+            if (el.children.length <= 2) {
+              const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+              if (txt.includes('attempt section')) {
+                startBtn = el.closest('button, a, [role="button"], mat-card, .card, div[class*="section"]') || el;
+                break;
+              }
+            }
+          }
+        }
+
         if (startBtn) {
-          const btnTarget = startBtn.closest('button, a, [role="button"]') || startBtn;
-          AutomatorCore.notify(`Clicking "${btnTarget.innerText.trim()}" to enter section...`, 'info');
+          AutomatorCore.notify(`Clicking "${startBtn.innerText.trim()}" to enter section...`, 'info');
+          try { startBtn.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
           ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
-            btnTarget.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+            startBtn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
           });
-          try { btnTarget.click(); } catch (e) {}
+          try { startBtn.click(); } catch (e) {}
           await DomUtils.sleep(2500);
           await this.dismissProctoringFullscreenWarning();
         }
@@ -728,7 +745,7 @@
 
       // 2. Solve questions loop
       const answeredQuestions = new Set();
-      let stepLimit = 70;
+      let stepLimit = 80;
       let consecutiveNoNextCount = 0;
 
       while (stepLimit-- > 0 && AutomatorCore.isRunning) {
@@ -741,36 +758,46 @@
           return;
         }
 
-        // If still not inside question view, check if an Attempt Section button is visible
-        if (!hasQuestionsOnScreen()) {
-          const attemptBtn = Array.from(document.querySelectorAll('button, a, [role="button"]')).find(b => {
+        // If still not inside question view, search for Attempt Section button again
+        if (!areQuestionsMounted()) {
+          const clickables = Array.from(document.querySelectorAll('button, a, [role="button"], mat-card, .btn'));
+          const attemptBtn = clickables.find(b => {
             if (b.disabled || b.offsetWidth === 0) return false;
             return (b.innerText || b.textContent || '').trim().toLowerCase().includes('attempt section');
           });
           if (attemptBtn) {
             AutomatorCore.notify('Entering section: clicking Attempt Section...', 'info');
-            const target = attemptBtn.closest('button, a, [role="button"]') || attemptBtn;
+            try { attemptBtn.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
             ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
-              target.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+              attemptBtn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
             });
-            try { target.click(); } catch (e) {}
+            try { attemptBtn.click(); } catch (e) {}
             await DomUtils.sleep(2500);
             continue;
           }
         }
 
-        // Palette inspection to detect questions and total count
-        const paletteBtns = Array.from(document.querySelectorAll(
-          '.question-palette button, .palette-item, .item-number, .q-item, button.mat-mini-fab, .question-btn, div[class*="palette"] button'
-        )).filter(b => b.offsetWidth > 0 || b.getClientRects().length > 0);
+        // Dedicated numbered question palette detection (matches ONLY numbers: 1, 2, ... 20)
+        const numberedPaletteBtns = Array.from(document.querySelectorAll(
+          '.question-palette button, .palette-item, .item-number, .q-item, div[class*="palette"] button, mat-button-toggle, .question-btn, button'
+        )).filter(b => {
+          if (b.disabled || b.offsetWidth === 0) return false;
+          const txt = (b.innerText || b.textContent || '').trim();
+          return /^\d{1,2}$/.test(txt);
+        });
 
-        const totalQuestions = paletteBtns.length > 0 ? paletteBtns.length : 20;
+        const totalQuestions = numberedPaletteBtns.length >= 10 ? numberedPaletteBtns.length : 20;
 
         // Current question extraction
         const currentTitleEl = document.querySelector(
           '.question-text, .question-title, .problem-statement, .q-text, .question, h2, h3, h4, [class*="questionText"], [class*="question-desc"], .content-card'
         );
         const currentQText = currentTitleEl ? (currentTitleEl.innerText || currentTitleEl.textContent || '').trim() : '';
+
+        // Capture page DOM to debug bridge on first question
+        if (answeredQuestions.size === 0) {
+          try { AutomatorCore.captureAndSendPage(); } catch (e) {}
+        }
 
         // Solve current visible question
         const containers = this.findQuestionContainers();
@@ -807,8 +834,8 @@
         }
 
         // If Next button not found or disabled, advance via Question Palette!
-        if (paletteBtns.length > 0) {
-          const nextPalette = paletteBtns.find(b => {
+        if (numberedPaletteBtns.length > 0) {
+          const nextPalette = numberedPaletteBtns.find(b => {
             const cls = (b.className || '').toLowerCase();
             return !cls.includes('active') && !cls.includes('current') && !cls.includes('selected') && !b.disabled;
           });
@@ -824,14 +851,14 @@
           }
         }
 
-        // ONLY allow submit when ALL questions are completed!
-        // NEVER submit when only 1 question has been answered!
-        const canSubmit = (paletteBtns.length > 0 && answeredQuestions.size >= paletteBtns.length) ||
+        // STRICT SAFETY GUARD FOR CONTEST SUBMISSION:
+        // A test cannot be submitted until ALL questions are answered (at least 18 questions minimum)!
+        const canSubmit = (numberedPaletteBtns.length >= 10 && answeredQuestions.size >= numberedPaletteBtns.length) ||
                           answeredQuestions.size >= totalQuestions ||
-                          (consecutiveNoNextCount >= 3 && answeredQuestions.size >= 10);
+                          (consecutiveNoNextCount >= 4 && answeredQuestions.size >= 18);
 
         if (canSubmit) {
-          const submitBtn = this.findSubmitOrFinishButton();
+          const submitBtn = this.findContestFinishButton();
           if (submitBtn && !submitBtn.disabled) {
             AutomatorCore.notify('All questions completed. Submitting IAP contest...', 'info');
             const submitTarget = submitBtn.closest('button, a, div[role="button"]') || submitBtn;
@@ -839,7 +866,7 @@
               submitTarget.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
             });
             try { submitTarget.click(); } catch (e) {}
-            await DomUtils.sleep(500);
+            await DomUtils.sleep(600);
             await this.confirmSubmitDialogIfPresent();
             await DomUtils.sleep(2500);
             await this.scrapeAndSaveReviewResults();
@@ -856,7 +883,7 @@
     /**
      * Parent frame waiter for nested IAP contest completion
      */
-    async waitForIapAssessmentCompletion(maxWaitMs = 120000) {
+    async waitForIapAssessmentCompletion(maxWaitMs = 180000) {
       window.__SPEEDO_IAP_FINISHED__ = false;
       const startTime = Date.now();
       AutomatorCore.notify('Waiting for IAP contest completion...', 'info');
@@ -877,16 +904,6 @@
 
         if (window.__SPEEDO_IAP_FINISHED__) {
           AutomatorCore.notify('IAP assessment finished.', 'info');
-          return true;
-        }
-
-        const markBtn = document.querySelector('button[aria-label*="mark as complete" i], button.mark-as-complete-mini');
-        if (markBtn && !markBtn.disabled) {
-          return true;
-        }
-
-        const nextBtn = document.querySelector('button[aria-label="Next Content"], button[aria-label="Next"]');
-        if (nextBtn && !nextBtn.disabled) {
           return true;
         }
 
