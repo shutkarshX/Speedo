@@ -8,7 +8,8 @@
  * - Hands-on coding exercises fast-skip (remote sandbox bypass)
  * - Article reading & Assessment quizzes
  * - "Mark as Complete" with dynamic Angular Material Dialog confirmation
- * - Strictly forward-only module and unit progression (guaranteed zero backward jumps, zero skipping)
+ * - Strictly forward-only module and unit progression (zero backward jumps, zero skipping)
+ * - True Module X of Y Progress Engine (Taste Skill compliant)
  */
 (function () {
   const SpringboardAdapter = {
@@ -150,6 +151,40 @@
     },
 
     /**
+     * Resolves real-time course progress metrics from the TOC tree:
+     * Calculates True Progress: Module X of Y (Z%)
+     */
+    getCourseProgress() {
+      const allNodes = Array.from(document.querySelectorAll('mat-tree-node'));
+      const folders = allNodes.filter(n => 
+        n.getAttribute('level') === '0' || 
+        n.querySelector('.toc-expand-icon') !== null || 
+        n.hasAttribute('aria-expanded')
+      );
+
+      const totalModules = Math.max(1, folders.length);
+      const activeIdx = this.getCurrentTocNodeIndex();
+
+      let currentModule = 1;
+      let activeModuleTitle = '';
+
+      if (activeIdx !== -1 && allNodes[activeIdx]) {
+        let lastFolderIdx = 0;
+        for (let i = 0; i <= activeIdx; i++) {
+          const fIdx = folders.indexOf(allNodes[i]);
+          if (fIdx !== -1) {
+            lastFolderIdx = fIdx;
+          }
+        }
+        currentModule = lastFolderIdx + 1;
+        activeModuleTitle = (folders[lastFolderIdx]?.querySelector('.content-title')?.innerText || folders[lastFolderIdx]?.innerText || '').replace(/[\n\r]+/g, ' ').trim();
+      }
+
+      const percent = Math.min(100, Math.round((currentModule / totalModules) * 100));
+      return { currentModule, totalModules, percent, activeModuleTitle };
+    },
+
+    /**
      * Master Viewer Completer Loop:
      * High-speed dynamic event-driven advancement:
      * Automatically waits dynamically for elements (0ms wasted hardcoded sleeps).
@@ -170,13 +205,14 @@
         // 1. Keep sidebar on Contents tab in background
         this.ensureContentsTabActive().catch(() => {});
 
-        // 2. Identify current unit and module
+        // 2. Identify current unit and calculate true course progress
         const unitTitleEl = document.querySelector('.content-title, .collection-title, h1, .header-title');
         const unitTitle = unitTitleEl ? unitTitleEl.innerText.replace(/[\n\r]+/g, ' ').trim() : `Unit ${step}`;
         
-        const expandedFolderEl = document.querySelector('mat-tree-node[level="0"][aria-expanded="true"] .content-title, .breadcrumb-item');
-        const moduleTitle = expandedFolderEl ? expandedFolderEl.innerText.replace(/[\n\r]+/g, ' ').trim() : '';
-        const fullDisplayTitle = moduleTitle ? `[${moduleTitle}] ${unitTitle}` : unitTitle;
+        const progress = this.getCourseProgress();
+        const fullDisplayTitle = progress.activeModuleTitle ? 
+          `[M${progress.currentModule}/${progress.totalModules}: ${progress.activeModuleTitle}] ${unitTitle}` : 
+          `[M${progress.currentModule}/${progress.totalModules}] ${unitTitle}`;
 
         AutomatorCore.notify(`[Step ${step}] ${fullDisplayTitle}`, 'info');
 
@@ -184,9 +220,9 @@
         if (window.location.href === lastUrl && unitTitle === lastTitle) {
           consecutiveStuck++;
           if (consecutiveStuck >= 2) {
-            AutomatorCore.notify(`⚠️ Repeated step on "${unitTitle}". Forcing forward advance via TOC...`, 'warn');
+            AutomatorCore.notify(`[Notice] Repeated step on "${unitTitle}". Advancing forward via TOC...`, 'warn');
             await this.advanceForwardViaToc();
-            await this.waitForSlideChange(lastUrl, 2500);
+            await this.waitForSlideChange(lastUrl, unitTitle, 2500);
             consecutiveStuck = 0;
             lastUrl = window.location.href;
             lastTitle = unitTitle;
@@ -205,31 +241,31 @@
                           document.querySelector('ws-viewer-plugin-hands-on, #focus_execute_handson, #focus_submit_handson, .monaco-editor, .ace_editor, [aria-label*="code pane" i]');
 
         if (isHandsOn) {
-          AutomatorCore.notify(`⏩ Hands-on code exercise "${fullDisplayTitle}" skipped. Advancing...`, 'info');
-          AutomatorCore.updateHUD(`⏩ Skipping: ${fullDisplayTitle}`, 50);
+          AutomatorCore.notify(`[Skip] Hands-on code exercise "${fullDisplayTitle}". Advancing...`, 'info');
+          AutomatorCore.updateHUD(`Bypassing: ${fullDisplayTitle}`, progress.percent);
           if (!AutomatorCore.isRunning) break;
           const advanced = await this.advanceToNextUnit();
           if (!advanced || !AutomatorCore.isRunning) break;
-          await this.waitForSlideChange(lastUrl, 3000);
+          await this.waitForSlideChange(lastUrl, unitTitle, 3000);
           lastUrl = window.location.href;
           continue;
         }
 
         // 4. Check if current slide is ALREADY completed
         if (this.isCurrentUnitCompleted()) {
-          AutomatorCore.notify(`✅ Unit "${fullDisplayTitle}" is already completed! Advancing...`, 'info');
-          AutomatorCore.updateHUD(`✅ Done: ${fullDisplayTitle}`, 50);
+          AutomatorCore.notify(`[Done] Unit "${fullDisplayTitle}" already completed. Advancing...`, 'info');
+          AutomatorCore.updateHUD(`Done: ${fullDisplayTitle}`, progress.percent);
           if (!AutomatorCore.isRunning) break;
           const advanced = await this.advanceToNextUnit();
           if (!advanced || !AutomatorCore.isRunning) break;
-          await this.waitForSlideChange(lastUrl, 3000);
+          await this.waitForSlideChange(lastUrl, unitTitle, 3000);
           lastUrl = window.location.href;
           continue;
         }
 
         // 5. Unit is INCOMPLETE: Complete it dynamically!
         if (!AutomatorCore.isRunning) break;
-        AutomatorCore.updateHUD(`Completing: ${fullDisplayTitle}`, 70);
+        AutomatorCore.updateHUD(`Active: ${fullDisplayTitle}`, progress.percent);
 
         // A. Start video if present so Mark as Complete unlocks immediately
         await this.handleVideoIfPresent();
@@ -247,28 +283,29 @@
         const advanced = await this.advanceToNextUnit();
         if (!advanced || !AutomatorCore.isRunning) {
           if (!AutomatorCore.isRunning) break;
-          AutomatorCore.notify('🎉 Course completed or no more units available!', 'info');
-          AutomatorCore.updateHUD('🎉 Course Completed!', 100);
-          AutomatorCore.stop('🎉 Course Completed!');
+          AutomatorCore.notify('Course completed or no more units available.', 'info');
+          AutomatorCore.updateHUD('Course Completed', 100);
+          AutomatorCore.stop('Course Completed.');
           break;
         }
 
-        // Wait dynamically for next slide to mount
-        await this.waitForSlideChange(lastUrl, 3000);
+        // Wait dynamically for next slide to mount (checking both URL and title)
+        await this.waitForSlideChange(lastUrl, unitTitle, 3000);
         if (!AutomatorCore.isRunning) break;
         lastUrl = window.location.href;
       }
     },
 
     /**
-     * Dynamically wait for URL or slide to change after clicking Next
+     * Dynamically wait for URL or slide title to change after clicking Next
      */
-    async waitForSlideChange(previousUrl, maxWaitMs = 3000) {
+    async waitForSlideChange(previousUrl, previousTitle = '', maxWaitMs = 3000) {
       const startTime = Date.now();
       while (Date.now() - startTime < maxWaitMs) {
         if (!AutomatorCore.isRunning) return false;
-        if (window.location.href !== previousUrl) {
-          await DomUtils.sleep(200); // Allow Angular router outlet to mount
+        const currentTitle = document.querySelector('.content-title, .collection-title, h1, .header-title')?.innerText?.trim() || '';
+        if (window.location.href !== previousUrl || (previousTitle && currentTitle && currentTitle !== previousTitle)) {
+          await DomUtils.sleep(150); // Allow Angular router outlet to mount
           return true;
         }
         await DomUtils.sleep(50);
@@ -376,14 +413,14 @@
       // 2. Dynamically wait for the Mark as Complete button to mount
       const triggerBtn = await this.waitForMarkButton(1500);
       if (triggerBtn) {
-        AutomatorCore.notify('⚡ Clicking "Mark as Complete" icon...', 'info');
+        AutomatorCore.notify('Clicking "Mark as Complete" icon...', 'info');
         await AutomatorCore.runInMainWorld('TRIGGER_MARK_COMPLETE');
         try { triggerBtn.click(); } catch (e) {}
 
         // 3. Dynamically wait for the confirmation dialog
         confirmBtn = await this.waitForConfirmDialog(2000);
         if (confirmBtn) {
-          AutomatorCore.notify('⚡ Confirming "Mark as complete" dialog...', 'info');
+          AutomatorCore.notify('Confirming "Mark as complete" dialog...', 'info');
           await AutomatorCore.runInMainWorld('CONFIRM_MARK_COMPLETE');
           try { confirmBtn.click(); } catch (e) {}
           await DomUtils.sleep(250);
@@ -489,9 +526,7 @@
     /**
      * Resolves the current active TOC tree node index in document.querySelectorAll('mat-tree-node')
      */
-    async getCurrentTocNodeIndex() {
-      await this.ensureContentsTabActive();
-
+    getCurrentTocNodeIndex() {
       const allNodes = Array.from(document.querySelectorAll('mat-tree-node'));
       if (allNodes.length === 0) return -1;
 
@@ -508,7 +543,6 @@
       const currentTitleEl = document.querySelector('.content-title, .collection-title, h1, .header-title');
       const currentTitle = (currentTitleEl ? currentTitleEl.innerText : '').replace(/[\n\r]+/g, ' ').trim().toLowerCase();
       if (currentTitle) {
-        // Look for exact or close title match among slide nodes (level !== '0')
         activeIdx = allNodes.findIndex(n => {
           if (n.getAttribute('level') === '0') return false;
           const title = (n.querySelector('.content-title')?.innerText || n.innerText || '').replace(/[\n\r]+/g, ' ').trim().toLowerCase();
@@ -542,20 +576,20 @@
       let allNodes = Array.from(document.querySelectorAll('mat-tree-node'));
       if (allNodes.length === 0) return false;
 
-      let currentIdx = await this.getCurrentTocNodeIndex();
+      let currentIdx = this.getCurrentTocNodeIndex();
       if (currentIdx === -1) {
         // Dynamic wait for TOC to highlight active slide
         const startWait = Date.now();
         while (Date.now() - startWait < 1500) {
           if (!AutomatorCore.isRunning) return false;
           await DomUtils.sleep(100);
-          currentIdx = await this.getCurrentTocNodeIndex();
+          currentIdx = this.getCurrentTocNodeIndex();
           if (currentIdx !== -1) break;
         }
       }
 
       if (currentIdx === -1) {
-        AutomatorCore.notify('⚠️ Could not locate current position in TOC. Pausing to avoid jumping backward.', 'warn');
+        AutomatorCore.notify('[Notice] Locating current position in TOC...', 'warn');
         return false;
       }
 
@@ -574,8 +608,7 @@
         if (isFolder) {
           // This is the NEXT module folder ahead of our current slide!
           const folderTitle = (node.querySelector('.content-title')?.innerText || node.innerText || 'Module').replace(/[\n\r]+/g, ' ').trim();
-          AutomatorCore.notify(`📂 Approaching next module folder: "${folderTitle}"...`, 'info');
-          AutomatorCore.updateHUD(`Opening: ${folderTitle}`, 60);
+          AutomatorCore.notify(`Opening next module: "${folderTitle}"...`, 'info');
 
           // 1. Expand folder if collapsed
           await this.expandFolder(node);
@@ -596,7 +629,7 @@
             }
 
             const slideTitle = (childNode.querySelector('.content-title')?.innerText || childNode.innerText || 'Slide').replace(/[\n\r]+/g, ' ').trim();
-            AutomatorCore.notify(`🚀 Opening first slide in "${folderTitle}": "${slideTitle}"...`, 'info');
+            AutomatorCore.notify(`Entering first slide in "${folderTitle}": "${slideTitle}"...`, 'info');
             this.clickTreeNode(childNode);
             return true;
           }
@@ -608,12 +641,12 @@
 
         // It is a subsequent slide in the current module!
         const slideTitle = (node.querySelector('.content-title')?.innerText || node.innerText || `Slide ${i}`).replace(/[\n\r]+/g, ' ').trim();
-        AutomatorCore.notify(`➡️ Advancing to next slide: "${slideTitle}"...`, 'info');
+        AutomatorCore.notify(`Advancing to next slide: "${slideTitle}"...`, 'info');
         this.clickTreeNode(node);
         return true;
       }
 
-      AutomatorCore.notify('🎉 Reached the end of all modules in TOC!', 'info');
+      AutomatorCore.notify('Reached the end of all modules in TOC.', 'info');
       return false;
     },
 
@@ -655,7 +688,7 @@
       }
 
       // 2. Next Content is disabled (at end of module or on code slide) -> Advance strictly forward via TOC!
-      AutomatorCore.notify('Next button disabled (end of module or code slide). Advancing forward via TOC...', 'info');
+      AutomatorCore.notify('Next button disabled. Advancing forward via TOC...', 'info');
       return await this.advanceForwardViaToc();
     },
 
