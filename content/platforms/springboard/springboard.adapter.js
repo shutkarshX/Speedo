@@ -491,11 +491,21 @@
      * Locate Next / Save & Next button in assessment views
      */
     findNextQuestionButton(root = document) {
-      const buttons = Array.from(root.querySelectorAll('button, a.btn'));
-      return buttons.find(b => {
+      const candidates = Array.from(root.querySelectorAll('button, a, div[role="button"], mat-icon'));
+      return candidates.find(b => {
         if (b.disabled || b.offsetWidth === 0) return false;
         const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-        return txt === 'next' || txt === 'save & next' || txt === 'next question' || txt === 'save and next';
+        const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+        const tooltip = (b.getAttribute('mattooltip') || '').toLowerCase();
+        return txt === 'next' || 
+               txt === 'save & next' || 
+               txt === 'next question' || 
+               txt === 'save and next' || 
+               txt.includes('next') ||
+               aria.includes('next') ||
+               tooltip.includes('next') ||
+               txt === 'navigate_next' ||
+               txt === 'chevron_right';
       });
     },
 
@@ -503,16 +513,20 @@
      * Locate Submit / Finish / Complete button in assessment views
      */
     findSubmitOrFinishButton(root = document) {
-      const buttons = Array.from(root.querySelectorAll('button, a.btn'));
-      return buttons.find(b => {
+      const candidates = Array.from(root.querySelectorAll('button, a, div[role="button"]'));
+      return candidates.find(b => {
         if (b.disabled || b.offsetWidth === 0) return false;
         const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-        return txt === 'submit' || 
+        const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+        return txt === 'finish test' || 
+               txt.includes('finish test') ||
+               txt === 'submit' || 
                txt === 'submit assessment' || 
                txt === 'finish' || 
                txt === 'end test' || 
-               txt === 'finish test' ||
-               txt === 'check answer';
+               txt === 'check answer' ||
+               aria.includes('finish') ||
+               aria.includes('submit');
       });
     },
 
@@ -652,6 +666,7 @@
       try {
         await chrome.storage.local.set({ springboardRunning: true });
       } catch (e) {}
+      AutomatorCore.showHUD('SPEEDO Assessment Solver Active');
       AutomatorCore.notify('Engaging IAP Contest Runner inside iframe...', 'info');
 
       // Dismiss proctoring warning if present
@@ -733,7 +748,17 @@
           return;
         }
 
-        break;
+        // Check for question palette buttons (e.g. 1, 2, 3...)
+        const paletteBtns = Array.from(document.querySelectorAll('.question-palette button, .palette-item, .item-number, .q-item'));
+        const nextPalette = paletteBtns.find(b => !b.classList.contains('active') && !b.classList.contains('answered') && !b.disabled);
+        if (nextPalette) {
+          nextPalette.click();
+          await DomUtils.sleep(800);
+          continue;
+        }
+
+        // Wait before next poll tick instead of terminating prematurely
+        await DomUtils.sleep(1200);
       }
     },
 

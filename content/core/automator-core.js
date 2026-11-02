@@ -42,19 +42,15 @@ window.AutomatorCore = (function () {
         payload: { text: `${platformTag} ${text}`, type }
       }).catch(() => {});
     } catch (e) {}
-
-    fetch('http://127.0.0.1:8765/log', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: `${platformTag} ${text}`, level: type })
-    }).catch(() => {});
   }
 
   /**
    * Floating HUD controls
    */
   function showHUD(initialText, onStop) {
-    if (window !== window.top) return;
+    // Render in top window OR inside fullscreen contest assessment frames
+    const isContestFrame = window.location.hostname.includes('infosysapps.com') || window.location.pathname.includes('/contest/');
+    if (window !== window.top && !isContestFrame) return;
     if (hudElement) hudElement.remove();
 
     hudElement = document.createElement('div');
@@ -167,17 +163,7 @@ window.AutomatorCore = (function () {
         payload
       }).catch(() => {});
     } catch (e) {}
-
-    try {
-      const res = await fetch('http://127.0.0.1:8765/dump', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      return await res.json();
-    } catch (err) {
-      return { success: true };
-    }
+    return { success: true };
   }
 
   /**

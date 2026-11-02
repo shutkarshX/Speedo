@@ -120,17 +120,6 @@
     } else {
       window.postMessage({ type: 'SPEEDO_ASSESSMENT_LOADED', url, data }, '*');
     }
-
-    try {
-      fetch('http://127.0.0.1:8765/log', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          level: 'info',
-          message: `[Page Guard Intercept] ${url} (Found ${extracted.length} answers)`
-        })
-      }).catch(() => {});
-    } catch (e) {}
   }
 
   const isAssessmentUrl = (url) => {
