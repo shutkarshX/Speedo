@@ -409,89 +409,203 @@
      * 2. Direct In-Browser Gemini AI Solver
      * 3. Exploratory Selection (first option)
      */
-    async solveSingleQuestion(container = document) {
-      const clickOption = (el) => {
-        if (!el) return;
-        const target = el.querySelector('label, input, .mat-radio-label, .mat-checkbox-label, .mat-radio-container') || el;
-        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
-          target.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
-        });
-        try { target.click(); } catch (e) {}
-      };
-
-      const titleEl = container.querySelector(
-        '.question-text, .question-title, .problem-statement, .q-text, .question, h2, h3, h4, [class*="questionText"], [class*="question-desc"], .content-card'
-      );
-      const rawQuestion = titleEl ? (titleEl.innerText || titleEl.textContent || '').trim() : '';
-
-      const optionEls = Array.from(container.querySelectorAll(
-        'mat-radio-button, mat-checkbox, label.option, div.option, div[class*="option-item"], input[type="radio"], input[type="checkbox"], div[role="radio"], div[role="checkbox"]'
+    findIapOptions(root = document) {
+      // 1. Standard radio / checkbox elements
+      const radios = Array.from(root.querySelectorAll(
+        'mat-radio-button, mat-checkbox, input[type="radio"], input[type="checkbox"], [role="radio"], [role="checkbox"], .mat-radio-button, .mat-checkbox'
       )).filter(el => el.offsetWidth > 0 || el.getClientRects().length > 0 || el.querySelector('input'));
+      if (radios.length >= 2) return radios;
 
+      // 2. Rows directly preceding the Save / Reset action buttons
+      const saveBtn = Array.from(root.querySelectorAll('button, [role="button"]')).find(b => {
+        const t = (b.innerText || '').trim().toLowerCase();
+        return t === 'save';
+      });
+
+      if (saveBtn) {
+        const card = saveBtn.closest('mat-card, .card, form, div[class*="content"]') || saveBtn.parentElement.parentElement;
+        if (card) {
+          const rows = Array.from(card.querySelectorAll('div, label, p, li')).filter(el => {
+            if (el.contains(saveBtn)) return false;
+            if (el.children.length > 3) return false;
+            const txt = (el.innerText || '').trim();
+            return txt.length > 0 && txt.length < 120 && !txt.includes('Reset') && !txt.includes('Save') && !txt.includes('OBJECTIVE') && !txt.includes('for(');
+          });
+          const distinct = [];
+          for (const r of rows) {
+            if (!distinct.some(d => d.contains(r) || r.contains(d))) distinct.push(r);
+          }
+          if (distinct.length >= 2) return distinct;
+        }
+      }
+
+      return [];
+    },
+
+    clickIapOption(el) {
+      if (!el) return;
+      try { el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {}
+
+      const input = el.querySelector('input') || (el.tagName === 'INPUT' ? el : null);
+      if (input) {
+        input.checked = true;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        try { input.click(); } catch (e) {}
+      }
+
+      const targets = [el];
+      const label = el.querySelector('label') || (el.tagName === 'LABEL' ? el : null);
+      if (label) targets.push(label);
+      const circle = el.querySelector('.mat-radio-container, .mat-radio-outer-circle, .circle, span') || el.firstElementChild;
+      if (circle) targets.push(circle);
+
+      for (const t of targets) {
+        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+          t.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+        });
+        try { t.click(); } catch (e) {}
+      }
+    },
+
+    clickSaveButton(root = document) {
+      const saveBtn = Array.from(root.querySelectorAll('button, a, [role="button"], .mat-raised-button, .mat-flat-button')).find(b => {
+        if (b.disabled || b.offsetWidth === 0) return false;
+        const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+        return txt === 'save' || txt === 'save answer' || txt === 'save & next';
+      });
+      if (saveBtn) {
+        AutomatorCore.notify('Saved question response.', 'info');
+        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+          saveBtn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+        });
+        try { saveBtn.click(); } catch (e) {}
+        return true;
+      }
+      return false;
+    },
+
+    clickQuestionNumber(qNum, root = document) {
+      const targetStr = String(qNum);
+      const candidates = Array.from(root.querySelectorAll('button, a, div, span, li, [role="button"]')).filter(el => {
+        if (el.children.length > 1) return false;
+        const txt = (el.innerText || el.textContent || '').trim();
+        return txt === targetStr && (el.offsetWidth > 0 || el.getClientRects().length > 0);
+      });
+
+      if (candidates.length > 0) {
+        const btn = candidates[0].closest('button, a, [role="button"], div') || candidates[0];
+        try { btn.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {}
+        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+          btn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+        });
+        try { btn.click(); } catch (e) {}
+        return true;
+      }
+      return false;
+    },
+
+    /**
+     * Solve a single question via:
+     * 1. Intercepted Network Answer / Local QA Cache
+     * 2. Direct In-Browser Gemini AI Solver
+     * 3. Exploratory Selection (first option)
+     */
+    async solveSingleQuestion(container = document) {
+      let rawQuestion = '';
+      const codeEl = container.querySelector('pre, code, div[class*="code"], div[class*="snippet"], .problem-statement, .question-text');
+      if (codeEl) {
+        rawQuestion = (codeEl.innerText || codeEl.textContent || '').trim();
+      }
+      if (!rawQuestion || rawQuestion.length < 5) {
+        const titleEl = container.querySelector(
+          '.question-text, .question-title, .problem-statement, .q-text, .question, h2, h3, h4, [class*="questionText"], [class*="question-desc"], .content-card'
+        );
+        rawQuestion = titleEl ? (titleEl.innerText || titleEl.textContent || '').trim() : '';
+      }
+
+      const optionEls = this.findIapOptions(container);
       if (optionEls.length === 0) return false;
 
       const optionTexts = optionEls.map(el => (el.innerText || el.textContent || el.value || '').trim());
       const isMulti = optionEls.some(el => el.matches('mat-checkbox, input[type="checkbox"], [role="checkbox"]'));
 
+      AutomatorCore.notify(`Answering: "${(rawQuestion || 'Question').slice(0, 35)}..." (${optionEls.length} options)`, 'info');
+
       // Method 1 & 4: Check QA Cache and Network Interception
-      const cached = await AutomatorCore.getCachedAnswer(rawQuestion);
-      if (cached) {
-        let matched = false;
-        if (Array.isArray(cached.correctIndices) && cached.correctIndices.length > 0) {
-          for (const idx of cached.correctIndices) {
-            if (optionEls[idx]) {
-              clickOption(optionEls[idx]);
-              matched = true;
+      if (rawQuestion) {
+        const cached = await AutomatorCore.getCachedAnswer(rawQuestion);
+        if (cached) {
+          let matched = false;
+          if (Array.isArray(cached.correctIndices) && cached.correctIndices.length > 0) {
+            for (const idx of cached.correctIndices) {
+              if (optionEls[idx]) {
+                this.clickIapOption(optionEls[idx]);
+                matched = true;
+              }
             }
           }
-        }
-        if (!matched && Array.isArray(cached.correctTexts) && cached.correctTexts.length > 0) {
-          for (const ansText of cached.correctTexts) {
-            const cleanAns = ansText.toLowerCase().trim();
-            const foundIdx = optionTexts.findIndex(txt => txt.toLowerCase().includes(cleanAns) || cleanAns.includes(txt.toLowerCase()));
-            if (foundIdx >= 0 && optionEls[foundIdx]) {
-              clickOption(optionEls[foundIdx]);
-              matched = true;
+          if (!matched && Array.isArray(cached.correctTexts) && cached.correctTexts.length > 0) {
+            for (const ansText of cached.correctTexts) {
+              const cleanAns = ansText.toLowerCase().trim();
+              const foundIdx = optionTexts.findIndex(txt => txt.toLowerCase().includes(cleanAns) || cleanAns.includes(txt.toLowerCase()));
+              if (foundIdx >= 0 && optionEls[foundIdx]) {
+                this.clickIapOption(optionEls[foundIdx]);
+                matched = true;
+              }
             }
           }
-        }
-        if (matched) {
-          AutomatorCore.notify('Selected answer from QA cache / network payload.', 'info');
-          return true;
+          if (matched) {
+            AutomatorCore.notify('Selected answer from QA cache / network payload.', 'info');
+            await DomUtils.sleep(200);
+            this.clickSaveButton(container);
+            return true;
+          }
         }
       }
 
       // Method 3: Direct In-Browser Gemini AI Solver
-      try {
-        const aiRes = await new Promise(resolve => {
-          chrome.runtime.sendMessage({
-            action: 'SOLVE_WITH_AI',
-            payload: { question: rawQuestion, options: optionTexts, isMulti }
-          }, resolve);
-        });
+      if (rawQuestion && optionTexts.length > 0) {
+        try {
+          AutomatorCore.notify('Consulting AI solver for correct answer...', 'info');
+          const aiRes = await new Promise(resolve => {
+            chrome.runtime.sendMessage({
+              action: 'SOLVE_WITH_AI',
+              payload: { question: rawQuestion, options: optionTexts, isMulti }
+            }, resolve);
+          });
 
-        if (aiRes && aiRes.success) {
-          const methodLabel = aiRes.method === 'web_tab' ? 'Gemini Web Tab' : 'Gemini AI';
-          if (Array.isArray(aiRes.answerIndices) && aiRes.answerIndices.length > 0) {
-            for (const idx of aiRes.answerIndices) {
-              if (optionEls[idx]) clickOption(optionEls[idx]);
+          if (aiRes && aiRes.success) {
+            const methodLabel = aiRes.method === 'web_tab' ? 'Gemini Web Tab' : 'Gemini AI';
+            if (Array.isArray(aiRes.answerIndices) && aiRes.answerIndices.length > 0) {
+              for (const idx of aiRes.answerIndices) {
+                if (optionEls[idx]) this.clickIapOption(optionEls[idx]);
+              }
+              AutomatorCore.notify(`Answered via ${methodLabel}: options [${aiRes.answerIndices.join(', ')}]`, 'info');
+              await AutomatorCore.saveAnswerToCache(rawQuestion, aiRes.answerIndices.map(i => optionTexts[i]), aiRes.answerIndices);
+              await DomUtils.sleep(200);
+              this.clickSaveButton(container);
+              return true;
+            } else if (aiRes.answerIndex !== undefined && optionEls[aiRes.answerIndex]) {
+              this.clickIapOption(optionEls[aiRes.answerIndex]);
+              AutomatorCore.notify(`Answered via ${methodLabel}: option ${aiRes.answerIndex + 1}`, 'info');
+              await AutomatorCore.saveAnswerToCache(rawQuestion, [optionTexts[aiRes.answerIndex]], [aiRes.answerIndex]);
+              await DomUtils.sleep(200);
+              this.clickSaveButton(container);
+              return true;
             }
-            AutomatorCore.notify(`Answered via ${methodLabel}: options [${aiRes.answerIndices.join(', ')}]`, 'info');
-            await AutomatorCore.saveAnswerToCache(rawQuestion, aiRes.answerIndices.map(i => optionTexts[i]), aiRes.answerIndices);
-            return true;
-          } else if (aiRes.answerIndex !== undefined && optionEls[aiRes.answerIndex]) {
-            clickOption(optionEls[aiRes.answerIndex]);
-            AutomatorCore.notify(`Answered via ${methodLabel}: option ${aiRes.answerIndex + 1}`, 'info');
-            await AutomatorCore.saveAnswerToCache(rawQuestion, [optionTexts[aiRes.answerIndex]], [aiRes.answerIndex]);
-            return true;
           }
+        } catch (aiErr) {
+          console.warn('[Springboard Adapter] AI solver failed:', aiErr);
         }
-      } catch (aiErr) {}
+      }
 
       // Fallback: Exploratory Selection (first option)
       try {
-        clickOption(optionEls[0]);
+        this.clickIapOption(optionEls[0]);
         AutomatorCore.notify('Selected initial option (feedback loop will record correct answer).', 'info');
+        await DomUtils.sleep(200);
+        this.clickSaveButton(container);
         return true;
       } catch (e) {}
 
@@ -786,132 +900,58 @@
           }
         }
 
-        // 2. Solve questions loop
+        // 2. Sequentially solve through questions 1..20
         const answeredQuestions = new Set();
-        let stepLimit = 80;
-        let consecutiveNoNextCount = 0;
+        const totalQuestions = 20;
 
-        while (stepLimit-- > 0 && AutomatorCore.isRunning) {
+        for (let q = 1; q <= totalQuestions; q++) {
+          if (!AutomatorCore.isRunning) break;
           await this.dismissProctoringFullscreenWarning();
 
-          // Check for review screen first
+          // Check if review screen already appeared
           if (await this.scrapeAndSaveReviewResults()) {
             AutomatorCore.notify('IAP Assessment complete. Correct answers indexed.', 'info');
             try { window.parent.postMessage({ type: 'SPEEDO_IAP_COMPLETED' }, '*'); } catch (e) {}
             return;
           }
 
-          // If still not inside question view, search for Attempt Section button again
-          if (!areQuestionsMounted()) {
-            const attemptBtn = findAnyStartOrAttemptElement();
-            if (attemptBtn) {
-              const label = (attemptBtn.innerText || attemptBtn.textContent || 'Attempt Section').trim().replace(/\s+/g, ' ');
-              AutomatorCore.notify(`Clicking "${label.slice(0, 30)}"...`, 'info');
-              try { attemptBtn.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
-              ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
-                attemptBtn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
-              });
-              try { attemptBtn.click(); } catch (e) {}
-              await DomUtils.sleep(2500);
-              continue;
-            }
-          }
+          // Navigate to Question q
+          AutomatorCore.notify(`Opening Question ${q}/${totalQuestions}...`, 'info');
+          this.clickQuestionNumber(q);
+          await DomUtils.sleep(800);
 
-          // Dedicated numbered question palette detection (matches ONLY numbers: 1, 2, ... 20)
-          const numberedPaletteBtns = Array.from(document.querySelectorAll(
-            '.question-palette button, .palette-item, .item-number, .q-item, div[class*="palette"] button, mat-button-toggle, .question-btn, button'
-          )).filter(b => {
-            if (b.disabled || b.offsetWidth === 0) return false;
-            const txt = (b.innerText || b.textContent || '').trim();
-            return /^\d{1,2}$/.test(txt);
-          });
-
-          const totalQuestions = numberedPaletteBtns.length >= 10 ? numberedPaletteBtns.length : 20;
-
-          // Current question extraction
-          const currentTitleEl = document.querySelector(
-            '.question-text, .question-title, .problem-statement, .q-text, .question, h2, h3, h4, [class*="questionText"], [class*="question-desc"], .content-card'
-          );
-          const currentQText = currentTitleEl ? (currentTitleEl.innerText || currentTitleEl.textContent || '').trim() : '';
-
-          // Solve current visible question
-          const containers = this.findQuestionContainers();
-          if (containers.length > 0) {
-            for (const c of containers) {
-              await this.solveSingleQuestion(c);
-              await DomUtils.sleep(150);
-            }
-          } else {
-            await this.solveSingleQuestion(document);
-          }
-
-          if (currentQText) {
-            answeredQuestions.add(currentQText);
+          // Solve question q
+          const answered = await this.solveSingleQuestion(document);
+          if (answered) {
+            answeredQuestions.add(q);
           }
 
           AutomatorCore.updateHUD(
             `Solved ${answeredQuestions.size}/${totalQuestions} Questions`,
-            Math.min(95, Math.round((answeredQuestions.size / totalQuestions) * 100))
+            Math.round((q / totalQuestions) * 100)
           );
+
+          // Ensure Save is clicked
           await DomUtils.sleep(300);
+          this.clickSaveButton(document);
+          await DomUtils.sleep(500);
+        }
 
-          // Try Next / Save & Next button
-          const nextBtn = this.findNextQuestionButton();
-          if (nextBtn && !nextBtn.disabled && nextBtn.offsetWidth > 0) {
-            const clickTarget = nextBtn.closest('button, a, div[role="button"]') || nextBtn;
-            ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
-              clickTarget.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
-            });
-            try { clickTarget.click(); } catch (e) {}
-            await DomUtils.sleep(900);
-            consecutiveNoNextCount = 0;
-            continue;
-          }
-
-          // If Next button not found or disabled, advance via Question Palette!
-          if (numberedPaletteBtns.length > 0) {
-            const nextPalette = numberedPaletteBtns.find(b => {
-              const cls = (b.className || '').toLowerCase();
-              return !cls.includes('active') && !cls.includes('current') && !cls.includes('selected') && !b.disabled;
-            });
-            if (nextPalette) {
-              AutomatorCore.notify(`Advancing via question palette: ${nextPalette.innerText.trim()}...`, 'info');
-              ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
-                nextPalette.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
-              });
-              try { nextPalette.click(); } catch (e) {}
-              await DomUtils.sleep(900);
-              consecutiveNoNextCount = 0;
-              continue;
-            }
-          }
-
-          // STRICT SAFETY GUARD FOR CONTEST SUBMISSION:
-          // A test cannot be submitted until ALL questions are answered (at least 18 questions minimum)!
-          const canSubmit = (numberedPaletteBtns.length >= 10 && answeredQuestions.size >= numberedPaletteBtns.length) ||
-                            answeredQuestions.size >= totalQuestions ||
-                            (consecutiveNoNextCount >= 4 && answeredQuestions.size >= 18);
-
-          if (canSubmit) {
-            const submitBtn = this.findContestFinishButton();
-            if (submitBtn && !submitBtn.disabled) {
-              AutomatorCore.notify('All questions completed. Submitting IAP contest...', 'info');
-              const submitTarget = submitBtn.closest('button, a, div[role="button"]') || submitBtn;
-              ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
-                submitTarget.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
-              });
-              try { submitTarget.click(); } catch (e) {}
-              await DomUtils.sleep(600);
-              await this.confirmSubmitDialogIfPresent();
-              await DomUtils.sleep(2500);
-              await this.scrapeAndSaveReviewResults();
-              try { window.parent.postMessage({ type: 'SPEEDO_IAP_COMPLETED' }, '*'); } catch (e) {}
-              return;
-            }
-          }
-
-          consecutiveNoNextCount++;
-          await DomUtils.sleep(1000);
+        // 3. All 20 questions completed! Submit contest
+        AutomatorCore.notify('All 20 questions completed. Submitting IAP contest...', 'info');
+        const submitBtn = this.findContestFinishButton();
+        if (submitBtn && !submitBtn.disabled) {
+          const submitTarget = submitBtn.closest('button, a, div[role="button"]') || submitBtn;
+          ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+            submitTarget.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+          });
+          try { submitTarget.click(); } catch (e) {}
+          await DomUtils.sleep(600);
+          await this.confirmSubmitDialogIfPresent();
+          await DomUtils.sleep(2500);
+          await this.scrapeAndSaveReviewResults();
+          try { window.parent.postMessage({ type: 'SPEEDO_IAP_COMPLETED' }, '*'); } catch (e) {}
+          return;
         }
       } finally {
         this._isIapRunnerRunning = false;
