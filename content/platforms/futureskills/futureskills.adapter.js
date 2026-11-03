@@ -335,6 +335,34 @@
         await this.waitForSpinnerToClear(2000);
         this.dismissWarningPopupsSafely();
 
+        // 4b. Dedicated Quiz Unit handling: Wait for quiz solver to complete quiz before advancing!
+        const isQuiz = this.isQuizUnit(targetUnit);
+        if (isQuiz) {
+          AutomatorCore.notify(`Quiz unit detected: "${unitTitle}". Waiting for quiz solver to answer and submit...`, 'info');
+          AutomatorCore.updateHUD(`Solving Quiz: ${unitTitle}`, currentPercent);
+
+          const quizWaitStart = Date.now();
+          let quizCompleted = false;
+          while (Date.now() - quizWaitStart < 45000) {
+            if (!AutomatorCore.isRunning) break;
+            const data = await chrome.storage.local.get(['speedo_last_quiz_completed']);
+            if (data?.speedo_last_quiz_completed && (Date.now() - data.speedo_last_quiz_completed < 25000)) {
+              quizCompleted = true;
+              break;
+            }
+            await DomUtils.sleep(1500);
+          }
+
+          if (quizCompleted) {
+            AutomatorCore.notify(`Quiz "${unitTitle}" completed! Proceeding to next unit...`, 'info');
+            targetUnit.classList.add('marked');
+            await DomUtils.sleep(1000);
+            continue;
+          } else {
+            AutomatorCore.notify(`Quiz wait complete for "${unitTitle}". Checking status...`, 'info');
+          }
+        }
+
         // 5. Check for warning popup (#markWarningPopup) OR in-slide Prerequisites gate
         const warningPopup = document.getElementById('markWarningPopup');
         const isWarningShowing = warningPopup && 
@@ -640,6 +668,14 @@
       return true;
     },
 
+    isQuizUnit(unitElement) {
+      if (!unitElement) return false;
+      const title = this.getUnitTitle(unitElement).toLowerCase();
+      if (title.includes('quiz') || title.includes('assessment')) return true;
+      if (unitElement.querySelector('.quizBorder, [class*="quiz"], [class*="assessment"]')) return true;
+      return false;
+    },
+
     /**
      * Autonomous FutureSkills Quiz Solver
      * Parses questions_data directly from page scripts (or window),
@@ -659,29 +695,38 @@
         await DomUtils.sleep(1200);
       }
 
-      // 2. Extract questions_data from script tags or window
+      // 2. Wait dynamically for questions payload to mount (up to 10s)
       let questions = [];
-      try {
-        const regex = /question_answer_arr\s*=\s*['"](\{[\s\S]*?\})['"]/g;
-        const html = document.documentElement.outerHTML;
-        let m;
-        while ((m = regex.exec(html)) !== null) {
-          try {
-            const raw = m[1].replaceAll('&quot;', '"')
-                            .replaceAll('=&gt;', ':')
-                            .replaceAll('nil', 'null')
-                            .replaceAll('\t', '');
-            const parsed = JSON.parse(raw);
-            if (parsed && parsed.all_options) {
-              questions.push(parsed);
-            }
-          } catch (pe) {}
-        }
-      } catch (e) {}
+      const startTime = Date.now();
+      while (Date.now() - startTime < 10000) {
+        if (!AutomatorCore.isRunning) return;
 
-      // Fallback: try window.questions_data if available
-      if (questions.length === 0 && window.questions_data && Array.isArray(window.questions_data)) {
-        questions = window.questions_data;
+        try {
+          const regex = /question_answer_arr\s*=\s*['"](\{[\s\S]*?\})['"]/g;
+          const html = document.documentElement.outerHTML;
+          let m;
+          while ((m = regex.exec(html)) !== null) {
+            try {
+              const raw = m[1].replaceAll('&quot;', '"')
+                              .replaceAll('=&gt;', ':')
+                              .replaceAll('nil', 'null')
+                              .replaceAll('\t', '');
+              const parsed = JSON.parse(raw);
+              if (parsed && parsed.all_options && parsed.all_options.length > 0) {
+                if (!questions.some(q => q.ques_id === parsed.ques_id)) {
+                  questions.push(parsed);
+                }
+              }
+            } catch (pe) {}
+          }
+        } catch (e) {}
+
+        if (questions.length === 0 && window.questions_data && Array.isArray(window.questions_data) && window.questions_data.length > 0) {
+          questions = window.questions_data;
+        }
+
+        if (questions.length > 0) break;
+        await DomUtils.sleep(600);
       }
 
       AutomatorCore.notify(`Identified ${questions.length} questions in quiz payload.`, 'info');
@@ -750,30 +795,29 @@
             }
           }
         }
-      } else {
-        // Generic fallback: check any radios and click submit
-        const allRadios = Array.from(document.querySelectorAll('input[type="radio"], input[type="checkbox"]'));
-        for (const r of allRadios) {
-          if (!r.checked) {
-            r.checked = true;
-            r.dispatchEvent(new Event('change', { bubbles: true }));
-            DomUtils.simulateClick(r);
-          }
+
+        await DomUtils.sleep(600);
+
+        // Final Submit / View Result
+        const finishBtn = document.querySelector('button.submit_quiz_btn, .quizz_btn, button[type="submit"], input[type="submit"]');
+        if (finishBtn) {
+          AutomatorCore.notify('Submitting quiz with 100% correct score...', 'info');
+          ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+            finishBtn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+          });
+          DomUtils.simulateClick(finishBtn);
+          await DomUtils.sleep(1500);
         }
+
+        try {
+          await chrome.storage.local.set({ speedo_last_quiz_completed: Date.now() });
+        } catch (e) {}
+
+        AutomatorCore.updateHUD('Quiz 100% Passed!', 100);
+        AutomatorCore.notify('Quiz completed and passed! Prerequisites unlocked.', 'info');
+      } else {
+        AutomatorCore.notify('Waiting for quiz questions to render...', 'warn');
       }
-
-      await DomUtils.sleep(600);
-
-      // Final Submit / View Result
-      const finishBtn = document.querySelector('button.submit_quiz_btn, .quizz_btn, button[type="submit"], input[type="submit"]');
-      if (finishBtn) {
-        AutomatorCore.notify('Submitting quiz with 100% correct score...', 'info');
-        DomUtils.simulateClick(finishBtn);
-        await DomUtils.sleep(1500);
-      }
-
-      AutomatorCore.updateHUD('Quiz 100% Passed!', 100);
-      AutomatorCore.notify(' Quiz completed and passed! Prerequisites unlocked.', 'info');
     },
 
     extractUnitParams(unitElement) {
