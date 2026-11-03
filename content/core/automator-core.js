@@ -144,6 +144,7 @@ window.AutomatorCore = (function () {
         'autoResumeCourse',
         'springboardRunning',
         'speedoRunning',
+        'speedoEnabled',
         'speedo_quiz_running',
         'speedo_last_quiz_completed'
       ]);

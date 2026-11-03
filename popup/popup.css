@@ -114,6 +114,69 @@ body {
   color: var(--text);
 }
 
+.beacon-right {
+  display: flex;
+  align-items: center;
+}
+
+.master-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.master-toggle-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  transition: color 0.15s ease;
+}
+
+.master-toggle-label.active {
+  color: var(--positive);
+}
+
+.master-toggle-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.master-toggle-slider {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  background-color: var(--control);
+  border-radius: 9999px;
+  transition: background-color 0.15s ease;
+}
+
+.master-toggle-slider::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background-color: var(--text);
+  border-radius: 50%;
+  transition: transform 0.15s ease;
+}
+
+.master-toggle-input:checked + .master-toggle-slider {
+  background-color: var(--positive);
+}
+
+.master-toggle-input:checked + .master-toggle-slider::after {
+  transform: translateX(16px);
+}
+
 .beacon-cue {
   font-size: 12px;
   color: var(--muted);

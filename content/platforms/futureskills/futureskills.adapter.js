@@ -60,8 +60,8 @@
      */
     async init() {
       try {
-        const data = await chrome.storage.local.get(['speedoRunning', 'pathwayRunner', 'autoResumeCourse']);
-        const isUserActive = data?.speedoRunning === true;
+        const data = await chrome.storage.local.get(['speedoRunning', 'speedoEnabled', 'pathwayRunner', 'autoResumeCourse']);
+        const isUserActive = data?.speedoRunning === true || data?.speedoEnabled === true;
 
         // If user did NOT start automation, sit completely dormant in standby
         if (!isUserActive) {

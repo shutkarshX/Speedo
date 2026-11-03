@@ -61,8 +61,8 @@
       });
 
       try {
-        const data = await chrome.storage.local.get(['speedoRunning', 'springboardRunning']);
-        const isUserActive = data?.speedoRunning === true;
+        const data = await chrome.storage.local.get(['speedoRunning', 'speedoEnabled', 'springboardRunning']);
+        const isUserActive = data?.speedoRunning === true || data?.speedoEnabled === true;
 
         // If user did NOT start automation, sit completely dormant in standby
         if (!isUserActive) {

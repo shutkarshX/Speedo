@@ -2,6 +2,8 @@
 const btnStart = document.getElementById('btnStart');
 const btnCapture = document.getElementById('btnCapture');
 const btnStop = document.getElementById('btnStop');
+const masterToggle = document.getElementById('masterToggle');
+const masterToggleLabel = document.getElementById('masterToggleLabel');
 const statusBadge = document.getElementById('statusBadge');
 const statusDot = document.getElementById('statusDot');
 const platformBadge = document.getElementById('platformBadge');
@@ -47,13 +49,40 @@ function updateUI(isRunning) {
     if (statusDot) statusDot.className = 'beacon-dot running';
     btnStart.disabled = true;
     btnStop.disabled = false;
+    if (masterToggle) masterToggle.checked = true;
+    if (masterToggleLabel) {
+      masterToggleLabel.textContent = 'ON';
+      masterToggleLabel.className = 'master-toggle-label active';
+    }
   } else {
-    statusBadge.textContent = 'Ready';
+    statusBadge.textContent = 'Standby';
     if (statusDot) statusDot.className = 'beacon-dot';
     btnStart.disabled = false;
     btnStop.disabled = true;
+    if (masterToggle) masterToggle.checked = false;
+    if (masterToggleLabel) {
+      masterToggleLabel.textContent = 'OFF';
+      masterToggleLabel.className = 'master-toggle-label';
+    }
   }
 }
+
+// Sync initial status immediately from storage
+chrome.storage.local.get(['speedoRunning', 'speedoEnabled'], (res) => {
+  const isRunning = Boolean(res?.speedoRunning || res?.speedoEnabled);
+  updateUI(isRunning);
+});
+
+// React live to cross-tab storage changes
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && (changes.speedoRunning || changes.speedoEnabled)) {
+    const isRunning = Boolean(
+      (changes.speedoRunning ? changes.speedoRunning.newValue : false) ||
+      (changes.speedoEnabled ? changes.speedoEnabled.newValue : false)
+    );
+    updateUI(isRunning);
+  }
+});
 
 // Listen for live logs sent from the content script
 chrome.runtime.onMessage.addListener((message) => {
@@ -164,26 +193,32 @@ if (btnCapture) {
   });
 }
 
-btnStart.addEventListener('click', async () => {
-  appendLog('Dispatching start instruction...', 'info');
+async function startAutomation() {
+  appendLog('Speedo master switch turned ON. Dispatching start instruction...', 'info');
   updateUI(true);
 
   // Single trigger via storage state
-  await chrome.storage.local.set({ speedoRunning: true, springboardRunning: true, startTime: Date.now() });
+  await chrome.storage.local.set({
+    speedoEnabled: true,
+    speedoRunning: true,
+    springboardRunning: true,
+    startTime: Date.now()
+  });
 
   const res = await sendTabMessage('START_AUTOMATION');
   if (!res) {
     appendLog('Tab unready. Refresh target page and re-engage.', 'warn');
   }
-});
+}
 
-btnStop.addEventListener('click', async () => {
-  appendLog('Terminating automation across all tabs and frames...', 'warn');
+async function stopAutomation() {
+  appendLog('Speedo master switch turned OFF. Terminating automation across all tabs and frames...', 'warn');
   await chrome.storage.local.remove([
     'springboardRunning',
     'pathwayRunner',
     'autoResumeCourse',
     'speedoRunning',
+    'speedoEnabled',
     'speedo_quiz_running',
     'speedo_last_quiz_completed'
   ]);
@@ -197,7 +232,7 @@ btnStop.addEventListener('click', async () => {
           target: { tabId: t.id, allFrames: true },
           func: () => {
             if (window.AutomatorCore && typeof window.AutomatorCore.stop === 'function') {
-              window.AutomatorCore.stop('Automation stopped by user.');
+              window.AutomatorCore.stop('Automation stopped by user via Master Switch.');
             }
           }
         }).catch(() => {});
@@ -207,4 +242,22 @@ btnStop.addEventListener('click', async () => {
 
   chrome.runtime.sendMessage({ action: 'STOP_PATHWAY' }).catch(() => {});
   updateUI(false);
+}
+
+if (masterToggle) {
+  masterToggle.addEventListener('change', async () => {
+    if (masterToggle.checked) {
+      await startAutomation();
+    } else {
+      await stopAutomation();
+    }
+  });
+}
+
+btnStart.addEventListener('click', async () => {
+  await startAutomation();
+});
+
+btnStop.addEventListener('click', async () => {
+  await stopAutomation();
 });

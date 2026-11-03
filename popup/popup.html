@@ -20,13 +20,19 @@
       <div id="platformBadge" class="pill pill-platform">Detecting</div>
     </header>
 
-    <!-- Beacon Status Bar -->
+    <!-- Beacon Status Bar with Master Toggle -->
     <div class="beacon-bar">
       <div class="beacon-left">
         <span id="statusDot" class="beacon-dot"></span>
-        <span id="statusBadge" class="beacon-status">Ready</span>
+        <span id="statusBadge" class="beacon-status">Standby</span>
       </div>
-      <span class="beacon-cue">Autonomous</span>
+      <div class="beacon-right">
+        <label class="master-toggle" for="masterToggle" title="Toggle Speedo On/Off">
+          <span id="masterToggleLabel" class="master-toggle-label">OFF</span>
+          <input type="checkbox" id="masterToggle" class="master-toggle-input">
+          <span class="master-toggle-slider"></span>
+        </label>
+      </div>
     </div>
 
     <!-- Actions Stack -->

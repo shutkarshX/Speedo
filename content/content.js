@@ -79,8 +79,12 @@
 
   // 5. Universal cross-frame runner synchronization via storage
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes.speedoRunning) {
-      if (changes.speedoRunning.newValue === true) {
+    if (area === 'local' && (changes.speedoRunning || changes.speedoEnabled)) {
+      const isEnabled = changes.speedoRunning
+        ? changes.speedoRunning.newValue === true
+        : changes.speedoEnabled?.newValue === true;
+
+      if (isEnabled) {
         if (!AutomatorCore.isRunning && platform && typeof platform.start === 'function') {
           platform.start();
         }
