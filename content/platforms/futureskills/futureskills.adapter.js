@@ -78,12 +78,13 @@
         if (this.isQuizPage()) {
           console.log('[FutureSkills Adapter] Active automation: Quiz page detected.');
           if (this.isQuizAlreadySubmitted()) {
-            AutomatorCore.notify('Quiz is already completed and passed! Closing tab in 1s...', 'info');
+            await this.triggerProcessMyResult();
+            AutomatorCore.notify('Quiz is already completed and passed! Closing tab in 1.5s...', 'info');
             await chrome.storage.local.set({ speedo_last_quiz_completed: Date.now() });
             setTimeout(() => {
               chrome.runtime.sendMessage({ action: 'CLOSE_CURRENT_TAB' });
               try { window.close(); } catch (e) {}
-            }, 1000);
+            }, 1500);
             return;
           }
           AutomatorCore.notify('FutureSkills Quiz detected. Auto-solving in 1.5s...', 'info');
@@ -1066,9 +1067,10 @@
       AutomatorCore.notify(`Identified ${questions.length} questions in quiz payload.`, 'info');
 
       if (questions.length === 0 && this.isQuizAlreadySubmitted()) {
-        AutomatorCore.notify('Quiz is already completed and passed! Closing tab in 1s...', 'info');
+        await this.triggerProcessMyResult();
+        AutomatorCore.notify('Quiz is already completed and passed! Closing tab in 1.5s...', 'info');
         await chrome.storage.local.set({ speedo_last_quiz_completed: Date.now() });
-        await DomUtils.sleep(1000);
+        await DomUtils.sleep(1500);
         chrome.runtime.sendMessage({ action: 'CLOSE_CURRENT_TAB' });
         try { window.close(); } catch (e) {}
         return;
@@ -1248,7 +1250,35 @@
       return unitElement.innerText.slice(0, 35).trim();
     },
 
+    /**
+     * Finds and clicks "Process My Result & Close" to commit course completion
+     */
+    async triggerProcessMyResult() {
+      const processBtn = document.querySelector('a.prcoess_result, a[href*="declare_course_complete"], .retake_btn.prcoess_result') ||
+                         Array.from(document.querySelectorAll('a, button')).find(el => {
+                           const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+                           const href = (el.getAttribute('href') || '').toLowerCase();
+                           return txt.includes('process my result') || href.includes('declare_course_complete');
+                         });
+
+      if (processBtn) {
+        AutomatorCore.notify('Clicking "Process My Result & Close" to declare course complete...', 'info');
+        DomUtils.simulateClick(processBtn);
+        await DomUtils.sleep(2500);
+        return true;
+      }
+      return false;
+    },
+
     async handleModuleCompletion() {
+      // 1. Advance to final declaration screen via next node
+      AutomatorCore.notify('Navigating to final node to commit course completion...', 'info');
+      await this.clickNextNode();
+      await DomUtils.sleep(2000);
+
+      // 2. Click "Process My Result & Close" if present
+      await this.triggerProcessMyResult();
+
       const data = await chrome.storage.local.get(['pathwayRunner']);
       const isPathwayActive = data?.pathwayRunner?.active;
 
@@ -1262,9 +1292,9 @@
           moduleId: data.pathwayRunner.currentModuleId
         });
       } else {
-        AutomatorCore.updateHUD(' Course 100% Complete! Refreshing page in 3s...', 100);
-        AutomatorCore.notify(' Course 100% Complete! Reloading in 3s to reflect verified 100%...', 'info');
-        AutomatorCore.stop(' Course 100% Complete!');
+        AutomatorCore.updateHUD('Course 100% Complete! Refreshing page in 3s...', 100);
+        AutomatorCore.notify('Course 100% Complete! Reloading in 3s to reflect verified 100%...', 'info');
+        AutomatorCore.stop('Course 100% Complete!');
 
         setTimeout(() => {
           window.location.reload();
