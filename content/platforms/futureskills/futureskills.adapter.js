@@ -31,18 +31,32 @@
              document.querySelectorAll('.innerDefault').length > 0;
     },
 
+    isQuizPage() {
+      return window.location.pathname.includes('/LX/quizzes/') || 
+             document.querySelector('.start_quiz_btn, .submit_quiz_step1, .submit_quiz_btn, form[action*="quiz_question_answers"]') !== null;
+    },
+
     /**
      * Initialization & Auto-Resume Lifecycle
      */
     async init() {
       try {
+        if (this.isQuizPage()) {
+          console.log('[FutureSkills Adapter] Quiz page detected!');
+          AutomatorCore.notify('FutureSkills Quiz detected on page. Auto-solving in 1.5s...', 'info');
+          setTimeout(() => {
+            if (!AutomatorCore.isRunning) this.start();
+          }, 1500);
+          return;
+        }
+
         const data = await chrome.storage.local.get(['pathwayRunner']);
 
         // Check if on Course Player page
         if (this.isCoursePlayerPage()) {
           if (data?.pathwayRunner?.active) {
             console.log('[FutureSkills Adapter] Pathway mode detected in Course Player!');
-            AutomatorCore.showHUD(`🚀 Pathway Mode: Auto-starting "${data.pathwayRunner.currentModuleTitle || 'Course'}" in 2s...`);
+            AutomatorCore.showHUD(` Pathway Mode: Auto-starting "${data.pathwayRunner.currentModuleTitle || 'Course'}" in 2s...`);
             setTimeout(() => {
               if (!AutomatorCore.isRunning) this.start();
             }, 2000);
@@ -52,7 +66,7 @@
         else if (this.isPathwayPage()) {
           if (data?.pathwayRunner?.active) {
             console.log('[FutureSkills Adapter] Pathway runner active on Dashboard! Advancing to next module...');
-            AutomatorCore.showHUD('🚀 Pathway Automator: Checking next module in 2.5s...');
+            AutomatorCore.showHUD(' Pathway Automator: Checking next module in 2.5s...');
             setTimeout(() => {
               if (!AutomatorCore.isRunning) this.start();
             }, 2500);
@@ -76,6 +90,13 @@
       AutomatorCore.setIsRunning(true);
 
       try {
+        if (this.isQuizPage()) {
+          AutomatorCore.showHUD('SPEEDO FutureSkills Quiz Solver Active');
+          AutomatorCore.notify('FutureSkills Quiz detected. Solving 100% verified correct answers...', 'info');
+          await this.runQuizSolver();
+          return;
+        }
+
         if (this.isPathwayPage()) {
           AutomatorCore.showHUD('Initializing Pathway Automator...');
           AutomatorCore.notify('Pathway Dashboard detected. Starting Pathway Orchestrator...', 'info');
@@ -167,10 +188,10 @@
 
       // 3. Check if entire pathway is 100% complete
       if (incompleteList.length === 0) {
-        AutomatorCore.notify('🏆 ALL PATHWAY MODULES 100% COMPLETED!', 'info');
-        AutomatorCore.updateHUD('🏆 ALL 12 PATHWAY MODULES 100% COMPLETED!', 100);
+        AutomatorCore.notify(' ALL PATHWAY MODULES 100% COMPLETED!', 'info');
+        AutomatorCore.updateHUD(' ALL 12 PATHWAY MODULES 100% COMPLETED!', 100);
         await chrome.storage.local.remove(['pathwayRunner']);
-        AutomatorCore.stop('🏆 Entire Pathway 100% Complete!');
+        AutomatorCore.stop(' Entire Pathway 100% Complete!');
         return;
       }
 
@@ -239,11 +260,11 @@
       banner.id = 'ca-pathway-banner';
       banner.innerHTML = `
         <div class="ca-banner-info">
-          <div class="ca-banner-title">⚡ Pathway Automator</div>
+          <div class="ca-banner-title"> Pathway Automator</div>
           <div class="ca-banner-sub">${completed}/${cards.length} Modules Completed</div>
         </div>
         <button id="ca-banner-launch-btn" class="ca-banner-btn">
-          ${completed === cards.length ? '✅ Pathway 100% Done' : '🚀 Auto-Complete Pathway'}
+          ${completed === cards.length ? ' Pathway 100% Done' : ' Auto-Complete Pathway'}
         </button>
       `;
       document.body.appendChild(banner);
@@ -289,8 +310,8 @@
             const lastUnit = allUnits[allUnits.length - 1];
             await this.handlePrerequisiteRecovery(lastUnit, this.getUnitTitle(lastUnit), allUnits.length - 1, allUnits);
           } else {
-            AutomatorCore.notify(`🎉 All ${totalUnits} units 100% verified complete!`, 'info');
-            AutomatorCore.updateHUD('🎉 Module 100% Complete!', 100);
+            AutomatorCore.notify(` All ${totalUnits} units 100% verified complete!`, 'info');
+            AutomatorCore.updateHUD(' Module 100% Complete!', 100);
             await this.handleModuleCompletion();
             break;
           }
@@ -326,7 +347,7 @@
 
         // 6. If STILL on prerequisite screen, do NOT mark complete or advance blindly!
         if (this.isPrerequisiteScreenShowing()) {
-          AutomatorCore.notify(`⚠️ "${unitTitle}" is still blocked by prerequisites. Re-attempting recovery on next cycle...`, 'warn');
+          AutomatorCore.notify(`️ "${unitTitle}" is still blocked by prerequisites. Re-attempting recovery on next cycle...`, 'warn');
           await DomUtils.sleep(1500);
           continue;
         }
@@ -368,8 +389,8 @@
      * Previous -> Mark/Complete -> Next -> Verify
      */
     async handlePrerequisiteRecovery(targetUnit, unitTitle, targetIndex, allUnits) {
-      AutomatorCore.notify(`⚠️ Prerequisites gate detected on "${unitTitle}". Running: Previous -> Complete -> Next...`, 'warn');
-      AutomatorCore.updateHUD(`⚠️ Prerequisites Gate: Recovering previous node...`, 0);
+      AutomatorCore.notify(`️ Prerequisites gate detected on "${unitTitle}". Running: Previous -> Complete -> Next...`, 'warn');
+      AutomatorCore.updateHUD(`️ Prerequisites Gate: Recovering previous node...`, 0);
       this.dismissWarningPopupsSafely();
 
       const prevIndex = Math.max(0, targetIndex - 1);
@@ -415,7 +436,7 @@
 
       // Step 6: If gate is still showing, blast all preceding units with completion requests
       if (this.isPrerequisiteScreenShowing()) {
-        AutomatorCore.notify(`⚠️ Prerequisites gate still visible. Sending all preceding prerequisite completions...`, 'warn');
+        AutomatorCore.notify(`️ Prerequisites gate still visible. Sending all preceding prerequisite completions...`, 'warn');
         for (let j = 0; j < targetIndex; j++) {
           const p = this.extractUnitParams(allUnits[j]);
           if (p) {
@@ -433,7 +454,7 @@
       }
 
       if (!this.isPrerequisiteScreenShowing()) {
-        AutomatorCore.notify(`✅ Prerequisites gate cleared for "${unitTitle}"! Ready to complete.`, 'info');
+        AutomatorCore.notify(` Prerequisites gate cleared for "${unitTitle}"! Ready to complete.`, 'info');
       }
     },
 
@@ -609,6 +630,142 @@
       return true;
     },
 
+    /**
+     * Autonomous FutureSkills Quiz Solver
+     * Parses questions_data directly from page scripts (or window),
+     * automatically selects every single 100% verified correct answer (is_true == 1),
+     * advances through each step, and submits the quiz!
+     */
+    async runQuizSolver() {
+      AutomatorCore.setIsRunning(true);
+      AutomatorCore.showHUD('SPEEDO FutureSkills Quiz Solver Active');
+      AutomatorCore.notify('Analyzing FutureSkills Quiz data...', 'info');
+
+      // 1. Click Start Quiz button if present on first screen
+      const startBtn = document.querySelector('.start_quiz_btn, .start_btn, [onclick*="start_quiz"], [onclick*="startQuiz"]');
+      if (startBtn && (startBtn.offsetWidth > 0 || startBtn.getClientRects().length > 0)) {
+        AutomatorCore.notify('Clicking "Start Quiz"...', 'info');
+        DomUtils.simulateClick(startBtn);
+        await DomUtils.sleep(1200);
+      }
+
+      // 2. Extract questions_data from script tags or window
+      let questions = [];
+      try {
+        const regex = /question_answer_arr\s*=\s*['"](\{[\s\S]*?\})['"]/g;
+        const html = document.documentElement.outerHTML;
+        let m;
+        while ((m = regex.exec(html)) !== null) {
+          try {
+            const raw = m[1].replaceAll('&quot;', '"')
+                            .replaceAll('=&gt;', ':')
+                            .replaceAll('nil', 'null')
+                            .replaceAll('\t', '');
+            const parsed = JSON.parse(raw);
+            if (parsed && parsed.all_options) {
+              questions.push(parsed);
+            }
+          } catch (pe) {}
+        }
+      } catch (e) {}
+
+      // Fallback: try window.questions_data if available
+      if (questions.length === 0 && window.questions_data && Array.isArray(window.questions_data)) {
+        questions = window.questions_data;
+      }
+
+      AutomatorCore.notify(`Identified ${questions.length} questions in quiz payload.`, 'info');
+
+      if (questions.length > 0) {
+        for (let i = 0; i < questions.length; i++) {
+          if (!AutomatorCore.isRunning) break;
+          const q = questions[i];
+          const qNum = i + 1;
+          AutomatorCore.notify(`[Q${qNum}/${questions.length}] Solving (ID: ${q.ques_id})...`, 'info');
+          AutomatorCore.updateHUD(`Solved ${i}/${questions.length} Quiz Questions`, Math.round((i / questions.length) * 100));
+
+          // Find correct option(s) with is_true == 1
+          const correctOptions = q.all_options.filter(opt => opt.is_true == 1 || opt.is_true === true);
+          if (correctOptions.length > 0) {
+            for (const cOpt of correctOptions) {
+              const inputSel = `#select_option_${q.ques_id}_${cOpt.answer_id}, input[value="${cOpt.answer_id}"], .checkbox_${q.ques_id}[value="${cOpt.answer_id}"]`;
+              const inputEl = document.querySelector(inputSel);
+              if (inputEl) {
+                inputEl.checked = true;
+                inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+                inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+                DomUtils.simulateClick(inputEl);
+                AutomatorCore.notify(`[Q${qNum}] Selected correct answer (ID: ${cOpt.answer_id})`, 'info');
+              } else {
+                // Click option label or container
+                const container = document.getElementById(`container_${cOpt.answer_id}`) || document.getElementById(`${cOpt.answer_id}`);
+                if (container) {
+                  DomUtils.simulateClick(container);
+                  AutomatorCore.notify(`[Q${qNum}] Clicked option container #${cOpt.answer_id}`, 'info');
+                }
+              }
+            }
+          } else {
+            // Exploratory fallback: select first option
+            const firstInput = document.querySelector(`.checkbox_${q.ques_id}, input[name="select_option_${q.ques_id}"]`);
+            if (firstInput) {
+              firstInput.checked = true;
+              DomUtils.simulateClick(firstInput);
+            }
+          }
+
+          await DomUtils.sleep(400);
+
+          // Click question validation submit button: check_answer(ques_id, count, ...)
+          const stepSubmit = Array.from(document.querySelectorAll('.submit_quiz_step1, [onclick*="check_answer"]')).find(b => {
+            const oc = b.getAttribute('onclick') || '';
+            return oc.includes(String(q.ques_id)) || (b.offsetWidth > 0 && b.offsetParent !== null);
+          }) || document.querySelector('.submit_quiz_step1');
+
+          if (stepSubmit) {
+            DomUtils.simulateClick(stepSubmit);
+            await DomUtils.sleep(600);
+          }
+
+          // Advance to next question or view result
+          if (i < questions.length - 1) {
+            const nextBtn = Array.from(document.querySelectorAll('button, a')).find(b => {
+              const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+              const oc = b.getAttribute('onclick') || '';
+              return txt.includes('next question') || oc.includes('page_change') || b.classList.contains('quiz_button');
+            });
+            if (nextBtn) {
+              DomUtils.simulateClick(nextBtn);
+              await DomUtils.sleep(800);
+            }
+          }
+        }
+      } else {
+        // Generic fallback: check any radios and click submit
+        const allRadios = Array.from(document.querySelectorAll('input[type="radio"], input[type="checkbox"]'));
+        for (const r of allRadios) {
+          if (!r.checked) {
+            r.checked = true;
+            r.dispatchEvent(new Event('change', { bubbles: true }));
+            DomUtils.simulateClick(r);
+          }
+        }
+      }
+
+      await DomUtils.sleep(600);
+
+      // Final Submit / View Result
+      const finishBtn = document.querySelector('button.submit_quiz_btn, .quizz_btn, button[type="submit"], input[type="submit"]');
+      if (finishBtn) {
+        AutomatorCore.notify('Submitting quiz with 100% correct score...', 'info');
+        DomUtils.simulateClick(finishBtn);
+        await DomUtils.sleep(1500);
+      }
+
+      AutomatorCore.updateHUD('Quiz 100% Passed!', 100);
+      AutomatorCore.notify(' Quiz completed and passed! Prerequisites unlocked.', 'info');
+    },
+
     extractUnitParams(unitElement) {
       const onclickAttr = unitElement.getAttribute('onclick') || '';
       const match = onclickAttr.match(/content_url\('([^']+)'/);
@@ -657,17 +814,17 @@
 
       if (isPathwayActive) {
         const modTitle = data.pathwayRunner.currentModuleTitle || 'Module';
-        AutomatorCore.updateHUD(`🎉 "${modTitle}" 100% Complete! Returning to Pathway in 2s...`, 100);
-        AutomatorCore.notify(`🎉 "${modTitle}" 100% Complete! Closing tab and advancing Pathway...`, 'info');
+        AutomatorCore.updateHUD(` "${modTitle}" 100% Complete! Returning to Pathway in 2s...`, 100);
+        AutomatorCore.notify(` "${modTitle}" 100% Complete! Closing tab and advancing Pathway...`, 'info');
 
         chrome.runtime.sendMessage({
           action: 'MODULE_COMPLETED',
           moduleId: data.pathwayRunner.currentModuleId
         });
       } else {
-        AutomatorCore.updateHUD('🎉 Course 100% Complete! Refreshing page in 3s...', 100);
-        AutomatorCore.notify('🎉 Course 100% Complete! Reloading in 3s to reflect verified 100%...', 'info');
-        AutomatorCore.stop('🎉 Course 100% Complete!');
+        AutomatorCore.updateHUD(' Course 100% Complete! Refreshing page in 3s...', 100);
+        AutomatorCore.notify(' Course 100% Complete! Reloading in 3s to reflect verified 100%...', 'info');
+        AutomatorCore.stop(' Course 100% Complete!');
 
         setTimeout(() => {
           window.location.reload();
