@@ -53,9 +53,6 @@
     },
 
     async init() {
-      console.log('[Springboard Adapter] Initialized on Wingspan platform:', window.location.pathname);
-
-      // Listen for parent frame IAP start instruction
       window.addEventListener('message', (event) => {
         if (event.data?.type === 'SPEEDO_START_IAP') {
           console.log('[Springboard Adapter] Received SPEEDO_START_IAP instruction from parent frame.');
@@ -63,19 +60,26 @@
         }
       });
 
-      // Auto-engage immediately when mounted directly inside IAP contest iframe
-      if (this.isIapContestPage()) {
-        AutomatorCore.notify('Autonomous IAP Contest Runner auto-engaging inside contest iframe.', 'info');
-        setTimeout(() => {
-          this.runIapContestRunner();
-        }, 1200);
-        return;
-      }
-
       try {
-        const data = await chrome.storage.local.get(['springboardRunning']);
-        if (data.springboardRunning) {
-          console.log('[Springboard Adapter] Auto-resuming Springboard automator...');
+        const data = await chrome.storage.local.get(['speedoRunning', 'speedoEnabled', 'springboardRunning']);
+        const isUserActive = data?.speedoRunning === true || data?.speedoEnabled === true;
+
+        // If user did NOT start automation, sit completely dormant in standby
+        if (!isUserActive) {
+          console.log('[Springboard Adapter] Standing by. Automation not active.');
+          return;
+        }
+
+        if (this.isIapContestPage()) {
+          AutomatorCore.notify('Autonomous IAP Contest Runner engaging inside contest iframe.', 'info');
+          setTimeout(() => {
+            this.runIapContestRunner();
+          }, 1200);
+          return;
+        }
+
+        if (data?.springboardRunning) {
+          console.log('[Springboard Adapter] Resuming Springboard automator...');
           setTimeout(() => {
             this.start();
           }, 1500);
@@ -87,7 +91,6 @@
       if (AutomatorCore.isRunning) return;
       AutomatorCore.setIsRunning(true);
       await chrome.storage.local.set({ springboardRunning: true });
-      chrome.runtime.sendMessage({ action: 'PREWARM_AI_TAB' }).catch(() => {});
 
       try {
         // Direct execution inside IAP Contest iframe
@@ -900,7 +903,10 @@
         // Dismiss proctoring warning if present
         await this.dismissProctoringFullscreenWarning();
 
-        // Initialize assessment solving loop
+        // Capture page DOM to debug server immediately on start
+        try {
+          await AutomatorCore.captureAndSendPage();
+        } catch (e) {}
 
         const areQuestionsMounted = () => {
           const optionInputs = document.querySelectorAll(

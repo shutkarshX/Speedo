@@ -26,6 +26,16 @@
              document.querySelectorAll('.allActiveProd').length > 0;
     },
 
+    isDashboardModularCourse() {
+      const cards = document.querySelectorAll('.allActiveProd');
+      for (const card of cards) {
+        if (card.querySelector('.getStarted, button[onclick*="getSubProduct"], button[onclick*="buyProductNow"]')) {
+          return true;
+        }
+      }
+      return false;
+    },
+
     isCoursePlayerPage() {
       return window.location.pathname.includes('/LX/content_players/') || 
              document.querySelectorAll('.innerDefault').length > 0;
@@ -50,50 +60,55 @@
      */
     async init() {
       try {
+        const data = await chrome.storage.local.get(['speedoRunning', 'speedoEnabled', 'pathwayRunner', 'autoResumeCourse']);
+        const isUserActive = data?.speedoRunning === true || data?.speedoEnabled === true;
+
+        // If user did NOT start automation, sit completely dormant in standby
+        if (!isUserActive) {
+          console.log('[FutureSkills Adapter] Standing by. Automation not active.');
+          if (this.isPathwayPage()) {
+            setTimeout(() => {
+              this.injectPathwayBanner();
+            }, 2000);
+          }
+          return;
+        }
+
+        // Active automation flows (only when user clicked Start)
         if (this.isQuizPage()) {
-          console.log('[FutureSkills Adapter] Quiz page detected!');
+          console.log('[FutureSkills Adapter] Active automation: Quiz page detected.');
           if (this.isQuizAlreadySubmitted()) {
-            AutomatorCore.notify('Quiz is already completed and passed! Closing tab in 1s...', 'info');
+            await this.triggerProcessMyResult();
+            AutomatorCore.notify('Quiz is already completed and passed! Closing tab in 1.5s...', 'info');
             await chrome.storage.local.set({ speedo_last_quiz_completed: Date.now() });
             setTimeout(() => {
               chrome.runtime.sendMessage({ action: 'CLOSE_CURRENT_TAB' });
               try { window.close(); } catch (e) {}
-            }, 1000);
+            }, 1500);
             return;
           }
-          AutomatorCore.notify('FutureSkills Quiz detected on page. Auto-solving in 1.5s...', 'info');
+          AutomatorCore.notify('FutureSkills Quiz detected. Auto-solving in 1.5s...', 'info');
           setTimeout(() => {
             if (!AutomatorCore.isRunning) this.start();
           }, 1500);
           return;
         }
 
-        const data = await chrome.storage.local.get(['pathwayRunner', 'autoResumeCourse']);
-
         // Check if on Course Player page
         if (this.isCoursePlayerPage()) {
-          if (data?.pathwayRunner?.active || data?.autoResumeCourse) {
-            console.log('[FutureSkills Adapter] Auto-resume mode detected in Course Player!');
-            AutomatorCore.showHUD(` Resuming Course Automator in 1.5s...`);
-            setTimeout(() => {
-              if (!AutomatorCore.isRunning) this.start();
-            }, 1500);
-          }
+          console.log('[FutureSkills Adapter] Active automation in Course Player.');
+          AutomatorCore.showHUD('Resuming Course Automator in 1.5s...');
+          setTimeout(() => {
+            if (!AutomatorCore.isRunning) this.start();
+          }, 1500);
         } 
         // Check if on Pathway Dashboard page
         else if (this.isPathwayPage()) {
-          if (data?.pathwayRunner?.active) {
-            console.log('[FutureSkills Adapter] Pathway runner active on Dashboard! Advancing to next module...');
-            AutomatorCore.showHUD(' Pathway Automator: Checking next module in 2.5s...');
-            setTimeout(() => {
-              if (!AutomatorCore.isRunning) this.start();
-            }, 2500);
-          } else {
-            // Inject floating quick-launch banner on Pathway page
-            setTimeout(() => {
-              this.injectPathwayBanner();
-            }, 2000);
-          }
+          console.log('[FutureSkills Adapter] Active automation on Dashboard.');
+          AutomatorCore.showHUD('Modular Course Automator Active...');
+          setTimeout(() => {
+            if (!AutomatorCore.isRunning) this.start();
+          }, 2000);
         }
       } catch (e) {
         console.warn('[FutureSkills Adapter] Init error:', e);
@@ -116,9 +131,14 @@
         }
 
         if (this.isPathwayPage()) {
-          AutomatorCore.showHUD('Initializing Pathway Automator...');
-          AutomatorCore.notify('Pathway Dashboard detected. Starting Pathway Orchestrator...', 'info');
-          await this.runPathwayOrchestrator();
+          if (this.isDashboardModularCourse()) {
+            AutomatorCore.showHUD('Modular Course Automator Active');
+            await this.runDashboardModularCompleter();
+          } else {
+            AutomatorCore.showHUD('Initializing Pathway Automator...');
+            AutomatorCore.notify('Pathway Dashboard detected. Starting Pathway Orchestrator...', 'info');
+            await this.runPathwayOrchestrator();
+          }
         } else if (this.isCoursePlayerPage()) {
           await chrome.storage.local.set({ autoResumeCourse: true });
           AutomatorCore.showHUD('Initializing Course Automator...');
@@ -151,9 +171,7 @@
       // 1. Wait for modules to render (AngularJS dynamic load)
       const rendered = await this.waitForPathwayModules(10000);
       if (!rendered) {
-        AutomatorCore.notify('No modules (.allActiveProd) found after waiting.', 'error');
-        AutomatorCore.updateHUD('Error: Modules failed to load', 0);
-        AutomatorCore.stop('No modules found.');
+        AutomatorCore.notify('No modules (.allActiveProd) found after waiting on this frame.', 'warn');
         return;
       }
 
@@ -257,6 +275,214 @@
         await DomUtils.sleep(500);
       }
       return false;
+    },
+
+    // -----------------------------------------------------------
+    // Modular Dashboard Course Completer (Articles, Enrol & Quizzes)
+    // -----------------------------------------------------------
+    async runDashboardModularCompleter() {
+      // Prevent child iframes from duplicating actions or launching multiple tabs
+      if (window !== window.top) return;
+
+      AutomatorCore.notify('Modular Course Dashboard detected. Beginning auto-progression...', 'info');
+
+      const maxPasses = 30;
+      let pass = 0;
+
+      while (AutomatorCore.isRunning && pass < maxPasses) {
+        pass++;
+
+        let cards = Array.from(document.querySelectorAll('.allActiveProd'));
+        if (cards.length === 0) {
+          await DomUtils.sleep(2000);
+          cards = Array.from(document.querySelectorAll('.allActiveProd'));
+          if (cards.length === 0) {
+            AutomatorCore.notify('No modules (.allActiveProd) found.', 'warn');
+            break;
+          }
+        }
+
+        const total = cards.length;
+        let completedCount = 0;
+        let targetCard = null;
+        let targetTitle = '';
+        let targetType = '';
+        let targetId = '';
+
+        for (let i = 0; i < cards.length; i++) {
+          const card = cards[i];
+          const h3 = card.querySelector('h3');
+          const title = h3?.getAttribute('data-original-title') || h3?.innerText?.trim() || `Unit ${i + 1}`;
+          const typeEl = card.querySelector('.textinfo');
+          const type = (typeEl?.innerText || '').trim();
+          const id = card.id ? card.id.replace('pro_', '') : '';
+
+          const complSpan = card.querySelector('.compltxt');
+          const isCompl = complSpan && window.getComputedStyle(complSpan).display !== 'none' && complSpan.innerText.includes('Completed');
+          const progressBar = card.querySelector('.progress-bar');
+          const isProgress100 = progressBar && progressBar.style.width === '100%';
+
+          if (isCompl || isProgress100) {
+            completedCount++;
+          } else if (!targetCard) {
+            targetCard = card;
+            targetTitle = title;
+            targetType = type;
+            targetId = id;
+          }
+        }
+
+        const currentPercent = Math.round((completedCount / total) * 100);
+        AutomatorCore.updateHUD(`Course: ${completedCount}/${total} Completed (${currentPercent}%)`, currentPercent);
+
+        if (!targetCard) {
+          AutomatorCore.notify('All modular units 100% Completed!', 'info');
+          AutomatorCore.updateHUD('Course 100% Completed!', 100);
+          await chrome.storage.local.set({ speedoRunning: false });
+          AutomatorCore.stop('Course 100% Complete!');
+          break;
+        }
+
+        AutomatorCore.notify(`[Unit ${completedCount + 1}/${total}] "${targetTitle}" (${targetType || 'Module'})...`, 'info');
+
+        // 1. Check if unit needs Enrollment (button: "Enrol" / onclick: buyProductNow)
+        const enrolBtn = Array.from(targetCard.querySelectorAll('button, a')).find(b => {
+          const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+          const onclick = (b.getAttribute('onclick') || '').toLowerCase();
+          return (txt === 'enrol' || txt === 'enroll' || onclick.includes('buyproductnow')) && !b.disabled;
+        });
+
+        if (enrolBtn) {
+          AutomatorCore.notify(`Auto-Enrolling in "${targetTitle}" (Free)... `, 'info');
+          DomUtils.simulateClick(enrolBtn);
+          const enrollStart = Date.now();
+          while (Date.now() - enrollStart < 2000) {
+            if (targetCard.querySelector('.getStarted, button[onclick*="getSubProduct"]')) break;
+            await DomUtils.sleep(200);
+          }
+          continue; // Re-evaluate cards after enrollment commits
+        }
+
+        // 2. Check if unit is a Quiz (ready to launch)
+        if (targetType.toLowerCase() === 'other' || targetTitle.toLowerCase().includes('quiz')) {
+          const startQuizBtn = Array.from(targetCard.querySelectorAll('button, a')).find(b => {
+            const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+            return txt.includes('quiz') || txt === 'get started' || txt === 'start' || txt === 'launch';
+          });
+          if (startQuizBtn) {
+            AutomatorCore.notify(`Launching Quiz for "${targetTitle}"...`, 'info');
+            const initialQuizTime = Date.now();
+            DomUtils.simulateClick(startQuizBtn);
+
+            // Dynamic polling for quiz completion (max 25s, checks every 250ms)
+            let quizFinished = false;
+            while (AutomatorCore.isRunning && Date.now() - initialQuizTime < 25000) {
+              await DomUtils.sleep(250);
+              const data = await chrome.storage.local.get(['speedo_last_quiz_completed']);
+              if (data?.speedo_last_quiz_completed && data.speedo_last_quiz_completed >= initialQuizTime - 3000) {
+                quizFinished = true;
+                break;
+              }
+            }
+
+            if (quizFinished) {
+              AutomatorCore.notify('Quiz 100% Passed! Finalizing Course...', 'info');
+              AutomatorCore.updateHUD('Quiz 100% Passed! Finalizing Course...', 100);
+              await DomUtils.sleep(1000);
+              window.location.reload();
+              return;
+            }
+            continue;
+          }
+        }
+
+        // 3. For Articles / Videos: Check if "Get Started" is present
+        const getStartedBtn = Array.from(targetCard.querySelectorAll('button, a')).find(b => {
+          const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+          const onclick = (b.getAttribute('onclick') || '').toLowerCase();
+          return (txt === 'get started' || onclick.includes('getsubproduct') || b.classList.contains('getStarted')) && !b.disabled;
+        });
+
+        if (getStartedBtn) {
+          AutomatorCore.notify(`Expanding "${targetTitle}"...`, 'info');
+          DomUtils.simulateClick(getStartedBtn);
+
+          // Dynamic wait for accordion to expand (max 1s)
+          const expStart = Date.now();
+          while (Date.now() - expStart < 1000) {
+            if (targetCard.querySelector('.post_cont_view_content, #markasComplete, button.viewReport')) break;
+            await DomUtils.sleep(150);
+          }
+
+          // Step 3a: Trigger "View Content" to unlock mark as complete (suppress new tab)
+          let viewLink = targetCard.querySelector('.post_cont_view_content, a[id*="view_content"], a[onclick*="pre_mark_as_complete"]');
+          if (!viewLink && targetId) {
+            viewLink = document.querySelector(`#post_complt_${targetId} .post_cont_view_content, #post_complt_${targetId} a[id*="view_content"]`);
+          }
+
+          if (viewLink) {
+            AutomatorCore.notify('Confirming content view...', 'info');
+            const originalHref = viewLink.getAttribute('href');
+            const originalTarget = viewLink.getAttribute('target');
+            viewLink.removeAttribute('target');
+            viewLink.setAttribute('href', 'javascript:void(0)');
+
+            DomUtils.simulateClick(viewLink);
+
+            if (originalHref) viewLink.setAttribute('href', originalHref);
+            if (originalTarget) viewLink.setAttribute('target', originalTarget);
+            await DomUtils.sleep(300);
+          }
+
+          // Step 3b: Click "Mark as Complete"
+          let markBtn = targetCard.querySelector('#markasComplete, button.viewReport, button[onclick*="mark_as_complete"]');
+          if (!markBtn && targetId) {
+            markBtn = document.querySelector(`#post_complt_${targetId} #markasComplete, #post_complt_${targetId} .viewReport`);
+          }
+          if (!markBtn) {
+            markBtn = document.querySelector('#post_completion_text #markasComplete, #markasComplete');
+          }
+
+          if (markBtn) {
+            AutomatorCore.notify(`Marking "${targetTitle}" as Complete...`, 'info');
+            markBtn.style.cursor = 'pointer';
+            DomUtils.simulateClick(markBtn);
+
+            // Dynamic wait for card to reflect completion (max 1.5s)
+            const markStart = Date.now();
+            while (Date.now() - markStart < 1500) {
+              const complSpan = targetCard.querySelector('.compltxt');
+              if (complSpan && complSpan.innerText.includes('Completed')) break;
+              await DomUtils.sleep(150);
+            }
+          } else {
+            const onclickAttr = getStartedBtn.getAttribute('onclick') || '';
+            const match = onclickAttr.match(/getSubProduct\s*\(\s*'([^']+)'\s*,\s*'[^']*'\s*,\s*'[^']*'\s*,\s*'[^']*'\s*,\s*'([^']+)'\s*\)/);
+            if (match) {
+              const lsId = match[1];
+              const prodId = match[2];
+              AutomatorCore.notify(`Directly marking "${targetTitle}" complete via platform API...`, 'info');
+              await AutomatorCore.runInMainWorld(`PRE_MARK_COMPLETE:${lsId}:${prodId}`);
+              await DomUtils.sleep(300);
+              await AutomatorCore.runInMainWorld(`MARK_HUB_COMPLETE:${lsId}:${prodId}`);
+              await DomUtils.sleep(1000);
+            }
+          }
+
+          continue;
+        }
+
+        // 4. Fallback: Standard Launch button
+        const launchBtn = targetCard.querySelector('.launchBtn, a[onclick*="getsubdata"]');
+        if (launchBtn) {
+          AutomatorCore.notify(`Launching player for "${targetTitle}"...`, 'info');
+          DomUtils.simulateClick(launchBtn);
+          await DomUtils.sleep(3000);
+          break;
+        }
+
+        await DomUtils.sleep(2000);
+      }
     },
 
     injectPathwayBanner() {
@@ -858,9 +1084,10 @@
       AutomatorCore.notify(`Identified ${questions.length} questions in quiz payload.`, 'info');
 
       if (questions.length === 0 && this.isQuizAlreadySubmitted()) {
-        AutomatorCore.notify('Quiz is already completed and passed! Closing tab in 1s...', 'info');
+        await this.triggerProcessMyResult();
+        AutomatorCore.notify('Quiz is already completed and passed! Closing tab in 1.5s...', 'info');
         await chrome.storage.local.set({ speedo_last_quiz_completed: Date.now() });
-        await DomUtils.sleep(1000);
+        await DomUtils.sleep(1500);
         chrome.runtime.sendMessage({ action: 'CLOSE_CURRENT_TAB' });
         try { window.close(); } catch (e) {}
         return;
@@ -1040,7 +1267,35 @@
       return unitElement.innerText.slice(0, 35).trim();
     },
 
+    /**
+     * Finds and clicks "Process My Result & Close" to commit course completion
+     */
+    async triggerProcessMyResult() {
+      const processBtn = document.querySelector('a.prcoess_result, a[href*="declare_course_complete"], .retake_btn.prcoess_result') ||
+                         Array.from(document.querySelectorAll('a, button')).find(el => {
+                           const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+                           const href = (el.getAttribute('href') || '').toLowerCase();
+                           return txt.includes('process my result') || href.includes('declare_course_complete');
+                         });
+
+      if (processBtn) {
+        AutomatorCore.notify('Clicking "Process My Result & Close" to declare course complete...', 'info');
+        DomUtils.simulateClick(processBtn);
+        await DomUtils.sleep(1000);
+        return true;
+      }
+      return false;
+    },
+
     async handleModuleCompletion() {
+      // 1. Advance to final declaration screen via next node
+      AutomatorCore.notify('Navigating to final node to commit course completion...', 'info');
+      await this.clickNextNode();
+      await DomUtils.sleep(2000);
+
+      // 2. Click "Process My Result & Close" if present
+      await this.triggerProcessMyResult();
+
       const data = await chrome.storage.local.get(['pathwayRunner']);
       const isPathwayActive = data?.pathwayRunner?.active;
 
@@ -1054,9 +1309,9 @@
           moduleId: data.pathwayRunner.currentModuleId
         });
       } else {
-        AutomatorCore.updateHUD(' Course 100% Complete! Refreshing page in 3s...', 100);
-        AutomatorCore.notify(' Course 100% Complete! Reloading in 3s to reflect verified 100%...', 'info');
-        AutomatorCore.stop(' Course 100% Complete!');
+        AutomatorCore.updateHUD('Course 100% Complete! Refreshing page in 3s...', 100);
+        AutomatorCore.notify('Course 100% Complete! Reloading in 3s to reflect verified 100%...', 'info');
+        AutomatorCore.stop('Course 100% Complete!');
 
         setTimeout(() => {
           window.location.reload();

@@ -136,9 +136,20 @@ window.AutomatorCore = (function () {
    * Stop automation and clean up state
    */
   function stop(reason = 'Automation stopped.') {
+    if (!isRunning) return; // Prevent recursive trigger loop
     isRunning = false;
-    chrome.storage.local.remove(['pathwayRunner', 'autoResumeCourse', 'springboardRunning']);
-    chrome.runtime.sendMessage({ action: 'STOP_PATHWAY' }).catch(() => {});
+    try {
+      chrome.storage.local.remove([
+        'pathwayRunner',
+        'autoResumeCourse',
+        'springboardRunning',
+        'speedoRunning',
+        'speedoEnabled',
+        'speedo_quiz_running',
+        'speedo_last_quiz_completed'
+      ]);
+      chrome.runtime.sendMessage({ action: 'STOP_PATHWAY' }).catch(() => {});
+    } catch (e) {}
     notify(reason, reason.includes('100%') ? 'info' : 'warn');
     updateHUD(reason, 0);
 
@@ -148,9 +159,21 @@ window.AutomatorCore = (function () {
   }
 
   /**
-   * Live DOM capture (no-op in production release)
+   * Live DOM capture for AI inspection
    */
   async function captureAndSendPage() {
+    const payload = {
+      url: window.location.href,
+      title: document.title,
+      html: document.documentElement.outerHTML
+    };
+
+    try {
+      chrome.runtime.sendMessage({
+        action: 'SEND_DEBUG_DUMP',
+        payload
+      }).catch(() => {});
+    } catch (e) {}
     return { success: true };
   }
 

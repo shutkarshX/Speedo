@@ -1,6 +1,9 @@
 // Elements
 const btnStart = document.getElementById('btnStart');
+const btnCapture = document.getElementById('btnCapture');
 const btnStop = document.getElementById('btnStop');
+const masterToggle = document.getElementById('masterToggle');
+const masterToggleLabel = document.getElementById('masterToggleLabel');
 const statusBadge = document.getElementById('statusBadge');
 const statusDot = document.getElementById('statusDot');
 const platformBadge = document.getElementById('platformBadge');
@@ -46,13 +49,40 @@ function updateUI(isRunning) {
     if (statusDot) statusDot.className = 'beacon-dot running';
     btnStart.disabled = true;
     btnStop.disabled = false;
+    if (masterToggle) masterToggle.checked = true;
+    if (masterToggleLabel) {
+      masterToggleLabel.textContent = 'ON';
+      masterToggleLabel.className = 'master-toggle-label active';
+    }
   } else {
-    statusBadge.textContent = 'Ready';
+    statusBadge.textContent = 'Standby';
     if (statusDot) statusDot.className = 'beacon-dot';
     btnStart.disabled = false;
     btnStop.disabled = true;
+    if (masterToggle) masterToggle.checked = false;
+    if (masterToggleLabel) {
+      masterToggleLabel.textContent = 'OFF';
+      masterToggleLabel.className = 'master-toggle-label';
+    }
   }
 }
+
+// Sync initial status immediately from storage
+chrome.storage.local.get(['speedoRunning', 'speedoEnabled'], (res) => {
+  const isRunning = Boolean(res?.speedoRunning || res?.speedoEnabled);
+  updateUI(isRunning);
+});
+
+// React live to cross-tab storage changes
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && (changes.speedoRunning || changes.speedoEnabled)) {
+    const isRunning = Boolean(
+      (changes.speedoRunning ? changes.speedoRunning.newValue : false) ||
+      (changes.speedoEnabled ? changes.speedoEnabled.newValue : false)
+    );
+    updateUI(isRunning);
+  }
+});
 
 // Listen for live logs sent from the content script
 chrome.runtime.onMessage.addListener((message) => {
@@ -126,42 +156,108 @@ sendTabMessage('GET_STATUS').then((response) => {
   }
 });
 
-btnStart.addEventListener('click', async () => {
-  appendLog('Dispatching start instruction (all frames)...', 'info');
-  chrome.runtime.sendMessage({ action: 'PREWARM_AI_TAB' }).catch(() => {});
-  updateUI(true);
+if (btnCapture) {
+  btnCapture.addEventListener('click', async () => {
+    appendLog('Exporting DOM snapshot (all frames)...', 'info');
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab && tab.id) {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: tab.id, allFrames: true },
+          func: () => ({
+            url: window.location.href,
+            title: document.title,
+            html: document.documentElement.outerHTML
+          })
+        });
 
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab && tab.id) {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id, allFrames: true },
-        func: () => {
-          if (window.AutomatorCore) {
-            const platform = window.PlatformRegistry ? window.PlatformRegistry.detectPlatform() : null;
-            if (platform && typeof platform.start === 'function') {
-              platform.start();
+        if (Array.isArray(results) && results.length > 0) {
+          for (const frame of results) {
+            if (frame && frame.result && frame.result.html) {
+              chrome.runtime.sendMessage({
+                action: 'SEND_DEBUG_DUMP',
+                payload: frame.result
+              }).catch(() => {});
             }
           }
+          appendLog('DOM snapshots delivered to bridge.', 'info');
+        } else {
+          await sendTabMessage('CAPTURE_PAGE');
         }
-      }).catch(() => {});
+      } else {
+        await sendTabMessage('CAPTURE_PAGE');
+      }
+    } catch (e) {
+      await sendTabMessage('CAPTURE_PAGE');
     }
-  } catch (e) {}
+  });
+}
 
-  await chrome.storage.local.set({ speedoRunning: true, springboardRunning: true, startTime: Date.now() });
+async function startAutomation() {
+  appendLog('Speedo master switch turned ON. Dispatching start instruction...', 'info');
+  updateUI(true);
+
+  // Single trigger via storage state
+  await chrome.storage.local.set({
+    speedoEnabled: true,
+    speedoRunning: true,
+    springboardRunning: true,
+    startTime: Date.now()
+  });
 
   const res = await sendTabMessage('START_AUTOMATION');
   if (!res) {
-    updateUI(false);
     appendLog('Tab unready. Refresh target page and re-engage.', 'warn');
   }
+}
+
+async function stopAutomation() {
+  appendLog('Speedo master switch turned OFF. Terminating automation across all tabs and frames...', 'warn');
+  await chrome.storage.local.remove([
+    'springboardRunning',
+    'pathwayRunner',
+    'autoResumeCourse',
+    'speedoRunning',
+    'speedoEnabled',
+    'speedo_quiz_running',
+    'speedo_last_quiz_completed'
+  ]);
+
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const t of tabs) {
+      if (t.id) {
+        chrome.tabs.sendMessage(t.id, { action: 'STOP_AUTOMATION' }).catch(() => {});
+        chrome.scripting.executeScript({
+          target: { tabId: t.id, allFrames: true },
+          func: () => {
+            if (window.AutomatorCore && typeof window.AutomatorCore.stop === 'function') {
+              window.AutomatorCore.stop('Automation stopped by user via Master Switch.');
+            }
+          }
+        }).catch(() => {});
+      }
+    }
+  } catch (e) {}
+
+  chrome.runtime.sendMessage({ action: 'STOP_PATHWAY' }).catch(() => {});
+  updateUI(false);
+}
+
+if (masterToggle) {
+  masterToggle.addEventListener('change', async () => {
+    if (masterToggle.checked) {
+      await startAutomation();
+    } else {
+      await stopAutomation();
+    }
+  });
+}
+
+btnStart.addEventListener('click', async () => {
+  await startAutomation();
 });
 
 btnStop.addEventListener('click', async () => {
-  appendLog('Terminating automation...', 'warn');
-  await chrome.storage.local.set({ speedoRunning: false, springboardRunning: false });
-  await chrome.storage.local.remove(['springboardRunning', 'pathwayRunner', 'autoResumeCourse', 'speedoRunning']);
-  await sendTabMessage('STOP_AUTOMATION');
-  chrome.runtime.sendMessage({ action: 'STOP_PATHWAY' }).catch(() => {});
-  updateUI(false);
+  await stopAutomation();
 });

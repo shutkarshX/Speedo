@@ -15,7 +15,7 @@
   }
 
   AutomatorCore.setActivePlatform(platform);
-  console.log(`[Course Automator] Platform detected & activated: "${platform.name}" (${platform.id})`);
+  console.log(`[Course Automator] [Platform detected & activated: "${platform.name}" (${platform.id})`);
 
   // 2. Initialize platform adapter (lifecycle checks, banner injection, auto-resume)
   if (typeof platform.init === 'function') {
@@ -53,6 +53,12 @@
         });
         break;
 
+      case 'CAPTURE_PAGE':
+        AutomatorCore.captureAndSendPage()
+          .then((result) => sendResponse(result))
+          .catch((err) => sendResponse({ success: false, error: err.message }));
+        return true;
+
       default:
         sendResponse({ status: 'unknown_action' });
     }
@@ -73,13 +79,19 @@
 
   // 5. Universal cross-frame runner synchronization via storage
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes.speedoRunning) {
-      if (changes.speedoRunning.newValue === true) {
-        if (platform && typeof platform.start === 'function') {
+    if (area === 'local' && (changes.speedoRunning || changes.speedoEnabled)) {
+      const isEnabled = changes.speedoRunning
+        ? changes.speedoRunning.newValue === true
+        : changes.speedoEnabled?.newValue === true;
+
+      if (isEnabled) {
+        if (!AutomatorCore.isRunning && platform && typeof platform.start === 'function') {
           platform.start();
         }
-      } else if (changes.speedoRunning.newValue === false) {
-        AutomatorCore.stop('Automation stopped.');
+      } else {
+        if (AutomatorCore.isRunning) {
+          AutomatorCore.stop('Automation stopped.');
+        }
       }
     }
   });
