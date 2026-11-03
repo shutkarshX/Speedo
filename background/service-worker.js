@@ -489,29 +489,3 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // async sendResponse
   }
 });
-
-// Auto-close external article tabs opened via "View Content" during modular course automation
-chrome.tabs.onCreated.addListener((tab) => {
-  chrome.storage.local.get(['speedoRunning'], (data) => {
-    if (data?.speedoRunning) {
-      setTimeout(async () => {
-        try {
-          const freshTab = await chrome.tabs.get(tab.id);
-          const u = (freshTab?.url || freshTab?.pendingUrl || '').toLowerCase();
-          // If tab is an external web article/blog/doc (not LMS, not Quiz, not Chrome internal)
-          if (
-            u && 
-            !u.includes('futureskillsprime.in') && 
-            !u.includes('onwingspan.com') && 
-            !u.includes('infosysapps.com') &&
-            !u.startsWith('chrome://') &&
-            !u.startsWith('chrome-extension://')
-          ) {
-            console.log('[Course Automator] Auto-closing external article tab:', u);
-            chrome.tabs.remove(tab.id).catch(() => {});
-          }
-        } catch (e) {}
-      }, 2000);
-    }
-  });
-});

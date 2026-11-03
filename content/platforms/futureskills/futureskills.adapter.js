@@ -330,6 +330,7 @@
         if (!targetCard) {
           AutomatorCore.notify('All modular units 100% Completed!', 'info');
           AutomatorCore.updateHUD('Course 100% Completed!', 100);
+          await chrome.storage.local.set({ speedoRunning: false });
           AutomatorCore.stop('Course 100% Complete!');
           break;
         }
@@ -396,16 +397,25 @@
           DomUtils.simulateClick(getStartedBtn);
           await DomUtils.sleep(1500);
 
-          // Step 3a: Click "View Content" to unlock mark as complete
+          // Step 3a: Trigger "View Content" to unlock mark as complete (suppress new tab)
           let viewLink = targetCard.querySelector('.post_cont_view_content, a[id*="view_content"], a[onclick*="pre_mark_as_complete"]');
           if (!viewLink && targetId) {
             viewLink = document.querySelector(`#post_complt_${targetId} .post_cont_view_content, #post_complt_${targetId} a[id*="view_content"]`);
           }
 
           if (viewLink) {
-            AutomatorCore.notify('Opening content view...', 'info');
+            AutomatorCore.notify('Confirming content view...', 'info');
+            // Prevent opening unwanted new tab
+            const originalHref = viewLink.getAttribute('href');
+            const originalTarget = viewLink.getAttribute('target');
+            viewLink.removeAttribute('target');
+            viewLink.setAttribute('href', 'javascript:void(0)');
+
             DomUtils.simulateClick(viewLink);
-            await DomUtils.sleep(1500);
+
+            if (originalHref) viewLink.setAttribute('href', originalHref);
+            if (originalTarget) viewLink.setAttribute('target', originalTarget);
+            await DomUtils.sleep(1000);
           }
 
           // Step 3b: Click "Mark as Complete"
