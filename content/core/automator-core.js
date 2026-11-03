@@ -137,8 +137,18 @@ window.AutomatorCore = (function () {
    */
   function stop(reason = 'Automation stopped.') {
     isRunning = false;
-    chrome.storage.local.remove(['pathwayRunner', 'autoResumeCourse', 'springboardRunning']);
-    chrome.runtime.sendMessage({ action: 'STOP_PATHWAY' }).catch(() => {});
+    try {
+      chrome.storage.local.set({ speedoRunning: false, springboardRunning: false });
+      chrome.storage.local.remove([
+        'pathwayRunner',
+        'autoResumeCourse',
+        'springboardRunning',
+        'speedoRunning',
+        'speedo_quiz_running',
+        'speedo_last_quiz_completed'
+      ]);
+      chrome.runtime.sendMessage({ action: 'STOP_PATHWAY' }).catch(() => {});
+    } catch (e) {}
     notify(reason, reason.includes('100%') ? 'info' : 'warn');
     updateHUD(reason, 0);
 

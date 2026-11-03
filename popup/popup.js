@@ -153,7 +153,6 @@ if (btnCapture) {
 
 btnStart.addEventListener('click', async () => {
   appendLog('Dispatching start instruction (all frames)...', 'info');
-  chrome.runtime.sendMessage({ action: 'PREWARM_AI_TAB' }).catch(() => {});
   updateUI(true);
 
   try {
@@ -183,10 +182,34 @@ btnStart.addEventListener('click', async () => {
 });
 
 btnStop.addEventListener('click', async () => {
-  appendLog('Terminating automation...', 'warn');
+  appendLog('Terminating automation across all tabs and frames...', 'warn');
   await chrome.storage.local.set({ speedoRunning: false, springboardRunning: false });
-  await chrome.storage.local.remove(['springboardRunning', 'pathwayRunner', 'autoResumeCourse', 'speedoRunning']);
-  await sendTabMessage('STOP_AUTOMATION');
+  await chrome.storage.local.remove([
+    'springboardRunning',
+    'pathwayRunner',
+    'autoResumeCourse',
+    'speedoRunning',
+    'speedo_quiz_running',
+    'speedo_last_quiz_completed'
+  ]);
+
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const t of tabs) {
+      if (t.id) {
+        chrome.tabs.sendMessage(t.id, { action: 'STOP_AUTOMATION' }).catch(() => {});
+        chrome.scripting.executeScript({
+          target: { tabId: t.id, allFrames: true },
+          func: () => {
+            if (window.AutomatorCore && typeof window.AutomatorCore.stop === 'function') {
+              window.AutomatorCore.stop('Automation stopped by user.');
+            }
+          }
+        }).catch(() => {});
+      }
+    }
+  } catch (e) {}
+
   chrome.runtime.sendMessage({ action: 'STOP_PATHWAY' }).catch(() => {});
   updateUI(false);
 });

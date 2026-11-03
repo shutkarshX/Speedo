@@ -100,7 +100,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`=================================================`);
-  console.log(`🚀 AI Live Debug Bridge running at http://127.0.0.1:${PORT}`);
+  console.log(`[READY] AI Live Debug Bridge running at http://127.0.0.1:${PORT}`);
   console.log(`Ready to receive DOM dumps and logs from browser!`);
   console.log(`=================================================`);
 });

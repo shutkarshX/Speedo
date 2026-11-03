@@ -10,7 +10,18 @@
     description: 'Universal fallback for HTML5 video completion and standard Next/Continue navigation.',
 
     matches() {
-      // Generic adapter acts as universal fallback
+      const url = (window.location.href || '').toLowerCase();
+      // Never match specialized platforms or AI web tabs
+      if (
+        url.includes('onwingspan.com') ||
+        url.includes('infyspringboard') ||
+        url.includes('infosysapps.com') ||
+        url.includes('futureskillsprime.in') ||
+        url.includes('gemini.google.com') ||
+        url.includes('chatgpt.com')
+      ) {
+        return false;
+      }
       return true;
     },
 

@@ -15,7 +15,7 @@
   }
 
   AutomatorCore.setActivePlatform(platform);
-  console.log(`[Course Automator] ✅ Platform detected & activated: "${platform.name}" (${platform.id})`);
+  console.log(`[Course Automator] [Platform detected & activated: "${platform.name}" (${platform.id})`);
 
   // 2. Initialize platform adapter (lifecycle checks, banner injection, auto-resume)
   if (typeof platform.init === 'function') {
@@ -84,7 +84,7 @@
         if (platform && typeof platform.start === 'function') {
           platform.start();
         }
-      } else if (changes.speedoRunning.newValue === false) {
+      } else {
         AutomatorCore.stop('Automation stopped.');
       }
     }

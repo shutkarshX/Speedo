@@ -87,7 +87,6 @@
       if (AutomatorCore.isRunning) return;
       AutomatorCore.setIsRunning(true);
       await chrome.storage.local.set({ springboardRunning: true });
-      chrome.runtime.sendMessage({ action: 'PREWARM_AI_TAB' }).catch(() => {});
 
       try {
         // Direct execution inside IAP Contest iframe
