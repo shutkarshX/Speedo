@@ -43,44 +43,57 @@ function appendLog(text, type = 'info') {
   logOutput.scrollTop = logOutput.scrollHeight;
 }
 
-function updateUI(isRunning) {
-  if (isRunning) {
-    statusBadge.textContent = 'Active';
-    if (statusDot) statusDot.className = 'beacon-dot running';
-    btnStart.disabled = true;
-    btnStop.disabled = false;
-    if (masterToggle) masterToggle.checked = true;
-    if (masterToggleLabel) {
-      masterToggleLabel.textContent = 'ON';
-      masterToggleLabel.className = 'master-toggle-label active';
-    }
-  } else {
-    statusBadge.textContent = 'Standby';
-    if (statusDot) statusDot.className = 'beacon-dot';
-    btnStart.disabled = false;
-    btnStop.disabled = true;
+function updateUI(isRunning, isExtensionEnabled = true) {
+  if (!isExtensionEnabled) {
     if (masterToggle) masterToggle.checked = false;
     if (masterToggleLabel) {
       masterToggleLabel.textContent = 'OFF';
       masterToggleLabel.className = 'master-toggle-label';
     }
+    statusBadge.textContent = 'Disabled';
+    if (statusDot) statusDot.className = 'beacon-dot';
+    btnStart.disabled = true;
+    btnStop.disabled = true;
+    if (btnCapture) btnCapture.disabled = true;
+    return;
+  }
+
+  // Extension is enabled
+  if (masterToggle) masterToggle.checked = true;
+  if (masterToggleLabel) {
+    masterToggleLabel.textContent = 'ON';
+    masterToggleLabel.className = 'master-toggle-label active';
+  }
+  if (btnCapture) btnCapture.disabled = false;
+
+  if (isRunning) {
+    statusBadge.textContent = 'Active';
+    if (statusDot) statusDot.className = 'beacon-dot running';
+    btnStart.disabled = true;
+    btnStop.disabled = false;
+  } else {
+    statusBadge.textContent = 'Ready';
+    if (statusDot) statusDot.className = 'beacon-dot';
+    btnStart.disabled = false;
+    btnStop.disabled = true;
   }
 }
 
 // Sync initial status immediately from storage
-chrome.storage.local.get(['speedoRunning', 'speedoEnabled'], (res) => {
-  const isRunning = Boolean(res?.speedoRunning || res?.speedoEnabled);
-  updateUI(isRunning);
+chrome.storage.local.get(['speedoRunning', 'speedoExtensionEnabled'], (res) => {
+  const isExtensionEnabled = res?.speedoExtensionEnabled !== false; // Default: true (Enabled)
+  const isRunning = isExtensionEnabled && Boolean(res?.speedoRunning);
+  updateUI(isRunning, isExtensionEnabled);
 });
 
 // React live to cross-tab storage changes
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && (changes.speedoRunning || changes.speedoEnabled)) {
-    const isRunning = Boolean(
-      (changes.speedoRunning ? changes.speedoRunning.newValue : false) ||
-      (changes.speedoEnabled ? changes.speedoEnabled.newValue : false)
-    );
-    updateUI(isRunning);
+  if (area === 'local' && (changes.speedoRunning || changes.speedoExtensionEnabled)) {
+    chrome.storage.local.get(['speedoRunning', 'speedoExtensionEnabled'], (res) => {
+      const isExtensionEnabled = res?.speedoExtensionEnabled !== false;
+      const isRunning = isExtensionEnabled && Boolean(res?.speedoRunning);
+      updateUI(isRunning, isExtensionEnabled);
+    });
   }
 });
 
@@ -131,14 +144,11 @@ async function sendTabMessage(action, payload = {}) {
   }
 }
 
-// Check initial status on popup open
+// Check initial platform details on popup open
 sendTabMessage('GET_STATUS').then((response) => {
   if (response) {
     if (response.platformName && platformBadge) {
       platformBadge.textContent = response.platformName;
-    }
-    if (response.isRunning !== undefined) {
-      updateUI(response.isRunning);
     }
     const label = btnStart.querySelector('span') || btnStart;
     if (response.isPathway) {
@@ -193,32 +203,13 @@ if (btnCapture) {
   });
 }
 
-async function startAutomation() {
-  appendLog('Speedo master switch turned ON. Dispatching start instruction...', 'info');
-  updateUI(true);
-
-  // Single trigger via storage state
-  await chrome.storage.local.set({
-    speedoEnabled: true,
-    speedoRunning: true,
-    springboardRunning: true,
-    startTime: Date.now()
-  });
-
-  const res = await sendTabMessage('START_AUTOMATION');
-  if (!res) {
-    appendLog('Tab unready. Refresh target page and re-engage.', 'warn');
-  }
-}
-
-async function stopAutomation() {
-  appendLog('Speedo master switch turned OFF. Terminating automation across all tabs and frames...', 'warn');
+// Universal halt routine
+async function haltAllAutomations(reason = 'Automation stopped.') {
   await chrome.storage.local.remove([
     'springboardRunning',
     'pathwayRunner',
     'autoResumeCourse',
     'speedoRunning',
-    'speedoEnabled',
     'speedo_quiz_running',
     'speedo_last_quiz_completed'
   ]);
@@ -230,34 +221,58 @@ async function stopAutomation() {
         chrome.tabs.sendMessage(t.id, { action: 'STOP_AUTOMATION' }).catch(() => {});
         chrome.scripting.executeScript({
           target: { tabId: t.id, allFrames: true },
-          func: () => {
+          func: (msg) => {
             if (window.AutomatorCore && typeof window.AutomatorCore.stop === 'function') {
-              window.AutomatorCore.stop('Automation stopped by user via Master Switch.');
+              window.AutomatorCore.stop(msg);
             }
-          }
+          },
+          args: [reason]
         }).catch(() => {});
       }
     }
   } catch (e) {}
 
   chrome.runtime.sendMessage({ action: 'STOP_PATHWAY' }).catch(() => {});
-  updateUI(false);
 }
 
+// Master Toggle: Enables or disables the extension itself (does NOT run course)
 if (masterToggle) {
   masterToggle.addEventListener('change', async () => {
-    if (masterToggle.checked) {
-      await startAutomation();
+    const isEnabled = masterToggle.checked;
+    await chrome.storage.local.set({ speedoExtensionEnabled: isEnabled });
+
+    if (!isEnabled) {
+      appendLog('Extension disabled. All operations halted.', 'warn');
+      await haltAllAutomations('Extension disabled by user via toggle switch.');
+      updateUI(false, false);
     } else {
-      await stopAutomation();
+      appendLog('Extension enabled. Ready for command.', 'info');
+      updateUI(false, true);
     }
   });
 }
 
+// Start Automation button: Actually begins doing the course
 btnStart.addEventListener('click', async () => {
-  await startAutomation();
+  appendLog('Starting course automation...', 'info');
+  updateUI(true, true);
+
+  await chrome.storage.local.set({
+    speedoExtensionEnabled: true,
+    speedoRunning: true,
+    springboardRunning: true,
+    startTime: Date.now()
+  });
+
+  const res = await sendTabMessage('START_AUTOMATION');
+  if (!res) {
+    appendLog('Tab unready. Refresh target page and re-engage.', 'warn');
+  }
 });
 
+// Halt button: Stops course automation (extension stays enabled)
 btnStop.addEventListener('click', async () => {
-  await stopAutomation();
+  appendLog('Halting automation across all tabs and frames...', 'warn');
+  await haltAllAutomations('Automation stopped by user.');
+  updateUI(false, true);
 });

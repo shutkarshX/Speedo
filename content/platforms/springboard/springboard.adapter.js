@@ -61,8 +61,12 @@
       });
 
       try {
-        const data = await chrome.storage.local.get(['speedoRunning', 'speedoEnabled', 'springboardRunning']);
-        const isUserActive = data?.speedoRunning === true || data?.speedoEnabled === true;
+        const data = await chrome.storage.local.get(['speedoRunning', 'speedoExtensionEnabled', 'springboardRunning']);
+        if (data?.speedoExtensionEnabled === false) {
+          console.log('[Springboard Adapter] Extension disabled by master toggle.');
+          return;
+        }
+        const isUserActive = data?.speedoRunning === true;
 
         // If user did NOT start automation, sit completely dormant in standby
         if (!isUserActive) {
