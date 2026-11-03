@@ -126,9 +126,14 @@
         }
 
         if (this.isPathwayPage()) {
-          AutomatorCore.showHUD('Initializing Pathway Automator...');
-          AutomatorCore.notify('Pathway Dashboard detected. Starting Pathway Orchestrator...', 'info');
-          await this.runPathwayOrchestrator();
+          if (this.isDashboardModularCourse()) {
+            AutomatorCore.showHUD('Modular Course Automator Active');
+            await this.runDashboardModularCompleter();
+          } else {
+            AutomatorCore.showHUD('Initializing Pathway Automator...');
+            AutomatorCore.notify('Pathway Dashboard detected. Starting Pathway Orchestrator...', 'info');
+            await this.runPathwayOrchestrator();
+          }
         } else if (this.isCoursePlayerPage()) {
           await chrome.storage.local.set({ autoResumeCourse: true });
           AutomatorCore.showHUD('Initializing Course Automator...');
