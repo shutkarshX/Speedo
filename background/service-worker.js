@@ -131,114 +131,32 @@ async function getOrCreateAiTab() {
 
 // Helper: Automate open Gemini / ChatGPT web tab with zero API key
 async function solveViaAiWebTab(promptText, isMulti) {
-  const targetTab = await getOrCreateAiTab();
-  if (!targetTab || !targetTab.id) {
-    return { success: false, error: 'Could not acquire AI web tab.' };
-  }
-  const isGemini = (targetTab.url || '').includes('gemini.google.com') || (targetTab.pendingUrl || '').includes('gemini.google.com');
-
-  const execResults = await chrome.scripting.executeScript({
-    target: { tabId: targetTab.id },
-    func: async (prompt, isGeminiTarget) => {
-      function findInputElement() {
-        if (isGeminiTarget) {
-          const rich = document.querySelector('rich-textarea');
-          if (rich) {
-            const ed = rich.querySelector('div[contenteditable="true"], p, textarea');
-            if (ed) return ed;
-          }
-          return document.querySelector('div[contenteditable="true"], textarea.text-input, textarea');
-        } else {
-          return document.querySelector('#prompt-textarea, textarea, div[contenteditable="true"]');
-        }
-      }
-
-      const input = findInputElement();
-      if (!input) {
-        return { success: false, error: 'AI prompt input not found. Ensure account is signed in.' };
-      }
-
-      const prevResponses = document.querySelectorAll(
-        isGeminiTarget 
-          ? '.model-response-text, message-content, [class*="response-container"], .markdown'
-          : '[data-message-author-role="assistant"], .markdown'
-      );
-      const prevCount = prevResponses.length;
-
-      input.focus();
-      if (input.tagName === 'TEXTAREA' || input.tagName === 'INPUT') {
-        input.value = prompt;
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-      } else {
-        input.innerHTML = `<p>${prompt.replace(/\n/g, '<br>')}</p>`;
-        input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
-      }
-
-      await new Promise((r) => setTimeout(r, 250));
-
-      function findSendButton() {
-        const btns = Array.from(document.querySelectorAll('button'));
-        return btns.find((b) => {
-          const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-          const testid = (b.getAttribute('data-testid') || '').toLowerCase();
-          const cls = (b.className || '').toLowerCase();
-          return (
-            aria.includes('send') || 
-            testid.includes('send') || 
-            cls.includes('send') || 
-            aria.includes('submit')
-          ) && !b.disabled;
-        });
-      }
-
-      const sendBtn = findSendButton();
-      if (sendBtn) {
-        sendBtn.click();
-      } else {
-        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-      }
-
-      const startTime = Date.now();
-      let lastText = '';
-
-      while (Date.now() - startTime < 25000) {
-        await new Promise((r) => setTimeout(r, 700));
-
-        const stopBtn = document.querySelector('button[aria-label*="Stop" i], [data-testid="stop-button"]');
-        if (stopBtn) continue;
-
-        const currentResponses = document.querySelectorAll(
-          isGeminiTarget 
-            ? '.model-response-text, message-content, [class*="response-container"], .markdown'
-            : '[data-message-author-role="assistant"], .markdown'
-        );
-
-        if (currentResponses.length > prevCount) {
-          const latest = currentResponses[currentResponses.length - 1];
-          const text = (latest.innerText || latest.textContent || '').trim();
-          if (text.length > 0) {
-            lastText = text;
-            await new Promise((r) => setTimeout(r, 500));
-            const settled = (latest.innerText || latest.textContent || '').trim();
-            return { success: true, text: settled || lastText };
-          }
-        }
-      }
-
-      if (lastText) {
-        return { success: true, text: lastText };
-      }
-      return { success: false, error: 'Response generation timed out on AI web tab.' };
-    },
-    args: [promptText, isGemini]
-  });
-
-  return execResults?.[0]?.result || { success: false, error: 'Tab execution failed.' };
+  // AI Web tab automation disabled to avoid hijacking user browser tabs
+  return { success: false, error: 'AI Web tab prompt solver is disabled.' };
 }
 
 // Central Message Broker
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Live log forwarding to local bridge server (bypasses page CSP and mixed content)
+  if (message.action === 'POPUP_LOG' && message.payload) {
+    fetch('http://127.0.0.1:8765/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: message.payload.text, level: message.payload.type })
+    }).catch(() => {});
+  }
+
+  // DOM dump forwarding to local bridge server (bypasses page CSP)
+  if (message.action === 'SEND_DEBUG_DUMP' && message.payload) {
+    fetch('http://127.0.0.1:8765/dump', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(message.payload)
+    }).catch(() => {});
+    sendResponse({ success: true });
+    return true;
+  }
+
   // 1. Open Player Tab via Native Extension API (Bypasses 100% of Chrome Popup Blockers)
   if (message.action === 'OPEN_PLAYER_TAB') {
     const targetUrl = message.url;
@@ -409,6 +327,58 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               console.log('[Course Automator] Invoking window.getsubdata(' + prodId + ')');
               window.getsubdata(prodId);
             }
+          } else if (typeof command === 'string' && command.startsWith('GET_SUB_PRODUCT:')) {
+            const parts = command.split(':');
+            const lsId = parts[1];
+            const prodId = parts[2];
+            if (typeof window.getSubProduct === 'function') {
+              console.log('[Course Automator] Invoking window.getSubProduct(' + lsId + ', ' + prodId + ')');
+              window.getSubProduct(lsId, '0', '1', 'false', prodId);
+            }
+          } else if (typeof command === 'string' && command.startsWith('PRE_MARK_COMPLETE:')) {
+            const parts = command.split(':');
+            const lsId = parts[1];
+            const prodId = parts[2];
+            if (typeof window.pre_mark_as_complete === 'function') {
+              console.log('[Course Automator] Invoking window.pre_mark_as_complete(' + lsId + ', ' + prodId + ')');
+              window.pre_mark_as_complete(lsId, prodId, 'false');
+            }
+          } else if (typeof command === 'string' && command.startsWith('MARK_HUB_COMPLETE:')) {
+            const parts = command.split(':');
+            const lsId = parts[1];
+            const prodId = parts[2];
+            if (typeof window.mark_as_complete_hub_product === 'function') {
+              console.log('[Course Automator] Invoking window.mark_as_complete_hub_product(' + lsId + ', ' + prodId + ')');
+              window.mark_as_complete_hub_product(lsId, prodId);
+            }
+          } else if (typeof command === 'string' && command.startsWith('BUY_PRODUCT_NOW:')) {
+            const parts = command.split(':');
+            const parentId = parts[1];
+            const prodId = parts[2];
+            const subType = parts[3] || '0';
+            if (typeof window.buyProductNow === 'function') {
+              console.log('[Course Automator] Invoking window.buyProductNow(' + parentId + ', ' + prodId + ')');
+              window.buyProductNow(parentId, prodId, subType, 'Free', 'learning_path');
+            }
+          } else if (typeof command === "string" && command.startsWith("EXEC_ONCLICK:")) {
+            const code = command.substring("EXEC_ONCLICK:".length);
+            console.log("[Course Automator] Main World evaluating onclick:", code);
+            try {
+              new Function(code)();
+            } catch (err) {
+              console.warn("[Course Automator Main World Eval Error]", err);
+            }
+          } else if (typeof command === "string" && command.startsWith("CLICK_SELECTOR:")) {
+            const sel = command.substring("CLICK_SELECTOR:".length);
+            const el = document.querySelector(sel);
+            if (el) {
+              const oc = el.getAttribute("onclick");
+              if (oc) {
+                try { new Function(oc).call(el); } catch (e) { el.click(); }
+              } else {
+                el.click();
+              }
+            }
           }
         } catch (e) {
           console.warn('[Course Automator Main World Error]', e);
@@ -480,14 +450,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // 4. Stop Pathway Automation completely
   if (message.action === 'STOP_PATHWAY') {
-    chrome.storage.local.remove(['pathwayRunner', 'autoResumeCourse']);
+    chrome.storage.local.remove([
+      'pathwayRunner',
+      'autoResumeCourse',
+      'springboardRunning',
+      'speedoRunning',
+      'speedo_quiz_running',
+      'speedo_last_quiz_completed'
+    ]);
     sendResponse({ success: true });
     return true;
   }
 
-  // Pre-warm Gemini tab silently in background
+  // Pre-warm Gemini tab disabled
   if (message.action === 'PREWARM_AI_TAB') {
-    getOrCreateAiTab().catch(() => {});
     sendResponse({ success: true });
     return true;
   }
@@ -526,20 +502,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       }
 
-      // Tier 2B: Free Browser Web Tab Bridge (gemini.google.com / chatgpt.com)
-      try {
-        const tabResult = await solveViaAiWebTab(promptText, expectsMulti);
-        if (tabResult && tabResult.success && tabResult.text) {
-          const matches = [...tabResult.text.matchAll(/\d+/g)].map(m => parseInt(m[0], 10));
-          if (matches.length > 0) {
-            sendResponse({ success: true, answerIndex: matches[0], answerIndices: matches, method: 'web_tab' });
-            return;
-          }
-        }
-        sendResponse({ success: false, reason: tabResult?.error || 'WEB_TAB_PARSE_FAILED' });
-      } catch (tabErr) {
-        sendResponse({ success: false, error: tabErr.message });
-      }
+      // Web Tab AI prompt bridge disabled to avoid hijacking user tabs
+      sendResponse({ success: false, reason: 'AI web tab prompt solver disabled.' });
     });
     return true; // async sendResponse
   }

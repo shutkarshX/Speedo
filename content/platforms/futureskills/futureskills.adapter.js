@@ -368,12 +368,8 @@
         if (enrolBtn) {
           AutomatorCore.notify(`Auto-Enrolling in "${targetTitle}" (Free)... `, "info");
           const onclick = enrolBtn.getAttribute("onclick") || "";
-          const buyMatch = onclick.match(/buyProductNow\s*\(\s*([^,]+)\s*,\s*'([^']+)'\s*,\s*'([^']+)'/);
-          if (buyMatch) {
-            const parentId = buyMatch[1].replace(/['"]/g, "").trim();
-            const prodId = buyMatch[2].trim();
-            const subType = buyMatch[3].trim();
-            await AutomatorCore.runInMainWorld(`BUY_PRODUCT_NOW:${parentId}:${prodId}:${subType}`);
+          if (onclick) {
+            await AutomatorCore.runInMainWorld(`EXEC_ONCLICK:${onclick}`);
           }
           DomUtils.simulateClick(enrolBtn);
 
@@ -397,6 +393,10 @@
         const routBtn = targetCard.querySelector("button.learningIcon, a.routelink, button[onclick*=\"rout_learning_pathway\"]");
         if (routBtn) {
           AutomatorCore.notify(`Entering module course "${targetTitle}"...`, "info");
+          const onclick = routBtn.getAttribute("onclick") || "";
+          if (onclick) {
+            await AutomatorCore.runInMainWorld(`EXEC_ONCLICK:${onclick}`);
+          }
           DomUtils.simulateClick(routBtn);
           await DomUtils.sleep(2000);
           return;
