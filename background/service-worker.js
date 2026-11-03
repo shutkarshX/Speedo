@@ -49,7 +49,7 @@ chrome.runtime.onInstalled.addListener(async () => {
           ]
         });
 
-        console.log(`[Course Automator] ✅ Auto-injected into Tab ${tab.id}`);
+        console.log(`[Course Automator] Auto-injected into Tab ${tab.id}`);
       } catch (err) {
         console.warn(`[Course Automator] Could not auto-inject tab ${tab.id}:`, err);
       }
@@ -274,6 +274,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       return true;
     }
+  }
+
+  // 1b. Close Sender Tab on demand
+  if (message.action === 'CLOSE_CURRENT_TAB') {
+    const tabId = sender.tab ? sender.tab.id : null;
+    if (tabId) {
+      chrome.tabs.remove(tabId).catch(() => {});
+      sendResponse({ success: true });
+    } else {
+      sendResponse({ success: false, error: 'No sender tab found' });
+    }
+    return true;
   }
 
   // 2. Execute functions directly inside page's MAIN world (CSP-safe)

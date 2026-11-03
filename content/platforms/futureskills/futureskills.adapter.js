@@ -335,32 +335,59 @@
         await this.waitForSpinnerToClear(2000);
         this.dismissWarningPopupsSafely();
 
-        // 4b. Dedicated Quiz Unit handling: Wait for quiz solver to complete quiz before advancing!
+        // 4b. Dedicated Quiz Unit handling: Launch autonomous Quiz Solver and wait dynamically!
         const isQuiz = this.isQuizUnit(targetUnit);
         if (isQuiz) {
-          AutomatorCore.notify(`Quiz unit detected: "${unitTitle}". Waiting for quiz solver to answer and submit...`, 'info');
+          AutomatorCore.notify(`Quiz unit detected: "${unitTitle}". Preparing autonomous Quiz Solver...`, 'info');
           AutomatorCore.updateHUD(`Solving Quiz: ${unitTitle}`, currentPercent);
 
-          const quizWaitStart = Date.now();
-          let quizCompleted = false;
-          while (Date.now() - quizWaitStart < 45000) {
-            if (!AutomatorCore.isRunning) break;
-            const data = await chrome.storage.local.get(['speedo_last_quiz_completed']);
-            if (data?.speedo_last_quiz_completed && (Date.now() - data.speedo_last_quiz_completed < 25000)) {
-              quizCompleted = true;
-              break;
-            }
-            await DomUtils.sleep(1500);
+          // Dynamic wait for quiz container / object to mount in DOM
+          const quizMountStart = Date.now();
+          let quizObj = null;
+          while (Date.now() - quizMountStart < 2500) {
+            quizObj = document.querySelector('object[data*="quizzes/show_new"], iframe[src*="quizzes/show_new"], #content_id');
+            if (quizObj) break;
+            await DomUtils.sleep(100);
           }
 
-          if (quizCompleted) {
-            AutomatorCore.notify(`Quiz "${unitTitle}" completed! Reloading player to advance to next node...`, 'info');
-            targetUnit.classList.add('marked');
-            await DomUtils.sleep(800);
-            window.location.reload();
-            return;
+          let quizUrl = quizObj ? (quizObj.getAttribute('data') || quizObj.src) : null;
+          if (!quizUrl && params) {
+            quizUrl = `/LX/quizzes/show_new?id=33&c_id=${encodeURIComponent(params.c_id)}&content_id=${encodeURIComponent(params.toc_id || params.content_id)}&toc_id=${encodeURIComponent(params.toc_id)}&content_ui=true`;
+          }
+
+          if (quizUrl) {
+            AutomatorCore.notify(`Launching autonomous Quiz Solver for "${unitTitle}"...`, 'info');
+            const quizSolveStart = Date.now();
+
+            // Launch quiz in dedicated solver tab
+            chrome.runtime.sendMessage({ action: 'OPEN_PLAYER_TAB', url: quizUrl });
+
+            // Dynamic polling wait: checks every 350ms until quiz completes
+            let quizCompleted = false;
+            const quizWaitStart = Date.now();
+            while (Date.now() - quizWaitStart < 60000) {
+              if (!AutomatorCore.isRunning) break;
+              const data = await chrome.storage.local.get(['speedo_last_quiz_completed']);
+              if (data?.speedo_last_quiz_completed && data.speedo_last_quiz_completed >= quizSolveStart) {
+                quizCompleted = true;
+                break;
+              }
+              await DomUtils.sleep(350);
+            }
+
+            if (quizCompleted) {
+              AutomatorCore.notify(`Quiz "${unitTitle}" completed! Reloading player to advance to next node...`, 'info');
+              targetUnit.classList.add('marked');
+              await DomUtils.sleep(800);
+              window.location.reload();
+              return;
+            } else {
+              AutomatorCore.notify(`Quiz "${unitTitle}" not yet completed. Pausing player to prevent prerequisite lockout.`, 'warn');
+              return;
+            }
           } else {
-            AutomatorCore.notify(`Quiz wait complete for "${unitTitle}". Checking status...`, 'info');
+            AutomatorCore.notify(`Could not locate quiz launch URL for "${unitTitle}". Pausing.`, 'warn');
+            return;
           }
         }
 
@@ -426,6 +453,38 @@
       const prevUnit = allUnits[prevIndex];
       const prevParams = prevUnit ? this.extractUnitParams(prevUnit) : null;
       const prevTitle = prevUnit ? this.getUnitTitle(prevUnit) : 'Previous Node';
+
+      // If previous node is a quiz, solve it autonomously
+      if (prevUnit && this.isQuizUnit(prevUnit)) {
+        AutomatorCore.notify(`[Recovery] Previous node "${prevTitle}" is a Quiz. Solving quiz first...`, 'info');
+        await this.clickPreviousNode(prevUnit);
+        await DomUtils.sleep(1500);
+        await this.waitForSpinnerToClear(2000);
+
+        const quizObj = document.querySelector('object[data*="quizzes/show_new"], iframe[src*="quizzes/show_new"], #content_id');
+        let quizUrl = quizObj ? (quizObj.getAttribute('data') || quizObj.src) : null;
+        if (!quizUrl && prevParams) {
+          quizUrl = `/LX/quizzes/show_new?id=33&c_id=${encodeURIComponent(prevParams.c_id)}&content_id=${encodeURIComponent(prevParams.toc_id || prevParams.content_id)}&toc_id=${encodeURIComponent(prevParams.toc_id)}&content_ui=true`;
+        }
+
+        if (quizUrl) {
+          const quizSolveStart = Date.now();
+          chrome.runtime.sendMessage({ action: 'OPEN_PLAYER_TAB', url: quizUrl });
+
+          const qWaitStart = Date.now();
+          while (Date.now() - qWaitStart < 60000) {
+            if (!AutomatorCore.isRunning) break;
+            const data = await chrome.storage.local.get(['speedo_last_quiz_completed']);
+            if (data?.speedo_last_quiz_completed && data.speedo_last_quiz_completed >= quizSolveStart) {
+              break;
+            }
+            await DomUtils.sleep(350);
+          }
+          await DomUtils.sleep(800);
+          window.location.reload();
+          return;
+        }
+      }
 
       // Step 1: Click PREVIOUS node
       AutomatorCore.notify(`[Recovery] Clicking Previous Node (< Previous Node / "${prevTitle}")...`, 'info');
@@ -776,8 +835,13 @@
             }
           }
 
-          // Dynamic wait for option check
-          await DomUtils.sleep(250);
+          // Dynamic wait for option selection
+          const optWait = Date.now();
+          while (Date.now() - optWait < 400) {
+            const anyChecked = pageContainer.querySelector('input:checked');
+            if (anyChecked) break;
+            await DomUtils.sleep(50);
+          }
 
           // 2. Click question submit button specifically for this question (check_answer)
           const stepSubmit = pageContainer.querySelector('.submit_quiz_step1, [onclick*="check_answer"]') ||
@@ -785,29 +849,30 @@
                              document.querySelector('.submit_quiz_step1');
 
           if (stepSubmit) {
-            ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
-              stepSubmit.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
-            });
-            try { stepSubmit.click(); } catch (e) {}
+            DomUtils.simulateClick(stepSubmit);
 
             // Dynamic wait for slide animation
             const checkWait = Date.now();
             while (Date.now() - checkWait < 1500) {
-              if (pageContainer.querySelector('.correct_ans, .wrong_ans')) break;
+              if (pageContainer.querySelector('.correct_ans, .wrong_ans, .quiz_explanation')) break;
               await DomUtils.sleep(100);
             }
           }
 
-          // 3. Advance to next question (strictly for this question index)
+          // 3. Advance to next question (when not on last question)
           if (count < questions.length) {
-            const nextBtn = pageContainer.querySelector(`[onclick*="page_change(${count})"], .fake_next_question_div button, .next_question_div a, .quiz_button`) ||
-                            document.querySelector(`[onclick*="page_change(${count})"]`);
+            const nextBtn = pageContainer.querySelector(`[onclick*="page_change(${count + 1})"], [onclick*="page_change(${count})"], .fake_next_question_div button, .next_question_div a, .quiz_button`) ||
+                            document.querySelector(`[onclick*="page_change(${count + 1})"]`) ||
+                            document.querySelector(`[onclick*="page_change(${count})"]`) ||
+                            Array.from(document.querySelectorAll('button, a')).find(b => {
+                              const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+                              const oc = b.getAttribute('onclick') || '';
+                              return (txt.includes('next question') || txt === 'next' || oc.includes('page_change')) &&
+                                     (b.offsetWidth > 0 || b.offsetParent !== null);
+                            });
 
             if (nextBtn) {
-              ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
-                nextBtn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
-              });
-              try { nextBtn.click(); } catch (e) {}
+              DomUtils.simulateClick(nextBtn);
 
               // Dynamic wait for next page to mount
               const nextPageWait = Date.now();
@@ -821,16 +886,18 @@
         }
 
         // 4. Final Submit / View Result
-        await DomUtils.sleep(400);
-        const finishBtns = Array.from(document.querySelectorAll('button.submit_quiz_btn, .quizz_btn, button[type="submit"], input[type="submit"]'));
-        const finishBtn = finishBtns.find(b => b.offsetWidth > 0 || b.getClientRects().length > 0) || finishBtns[0];
+        const finishStart = Date.now();
+        let finishBtn = null;
+        while (Date.now() - finishStart < 3000) {
+          const finishBtns = Array.from(document.querySelectorAll('button.submit_quiz_btn, .quizz_btn, button[type="submit"], input[type="submit"]'));
+          finishBtn = finishBtns.find(b => b.offsetWidth > 0 || b.getClientRects().length > 0) || finishBtns[0];
+          if (finishBtn) break;
+          await DomUtils.sleep(100);
+        }
 
         if (finishBtn) {
           AutomatorCore.notify('Submitting quiz with 100% correct score...', 'info');
-          ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
-            finishBtn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
-          });
-          try { finishBtn.click(); } catch (e) {}
+          DomUtils.simulateClick(finishBtn);
 
           const form = finishBtn.closest('form') || document.querySelector('form[action*="create_survey"]');
           if (form) {
@@ -847,7 +914,15 @@
         } catch (e) {}
 
         AutomatorCore.updateHUD('Quiz 100% Passed!', 100);
-        AutomatorCore.notify('Quiz completed and passed! Prerequisites unlocked.', 'info');
+        AutomatorCore.notify('Quiz completed and passed! Prerequisites cleared.', 'info');
+
+        // Dynamic tab close if in dedicated quiz tab
+        if (window.location.pathname.includes('/LX/quizzes/')) {
+          AutomatorCore.notify('Closing quiz tab in 1.5s...', 'info');
+          await DomUtils.sleep(1500);
+          chrome.runtime.sendMessage({ action: 'CLOSE_CURRENT_TAB' });
+          try { window.close(); } catch (e) {}
+        }
       } else {
         AutomatorCore.notify('Waiting for quiz questions to render...', 'warn');
       }
