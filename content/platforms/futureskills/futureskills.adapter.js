@@ -135,14 +135,8 @@
         }
 
         if (this.isPathwayPage()) {
-          if (this.isDashboardModularCourse()) {
-            AutomatorCore.showHUD('Modular Course Automator Active');
-            await this.runDashboardModularCompleter();
-          } else {
-            AutomatorCore.showHUD('Initializing Pathway Automator...');
-            AutomatorCore.notify('Pathway Dashboard detected. Starting Pathway Orchestrator...', 'info');
-            await this.runPathwayOrchestrator();
-          }
+          AutomatorCore.showHUD('Modular Course Automator Active');
+          await this.runDashboardModularCompleter();
         } else if (this.isCoursePlayerPage()) {
           await chrome.storage.local.set({ autoResumeCourse: true });
           AutomatorCore.showHUD('Initializing Course Automator...');
@@ -293,17 +287,21 @@
       const maxPasses = 30;
       let pass = 0;
 
+      // Dynamic initial wait for cards to render (AngularJS load)
+      let initialCards = Array.from(document.querySelectorAll('.allActiveProd'));
+      const initialWait = Date.now();
+      while (initialCards.length === 0 && Date.now() - initialWait < 12000) {
+        await DomUtils.sleep(500);
+        initialCards = Array.from(document.querySelectorAll('.allActiveProd'));
+      }
+
       while (AutomatorCore.isRunning && pass < maxPasses) {
         pass++;
 
         let cards = Array.from(document.querySelectorAll('.allActiveProd'));
         if (cards.length === 0) {
-          await DomUtils.sleep(2000);
-          cards = Array.from(document.querySelectorAll('.allActiveProd'));
-          if (cards.length === 0) {
-            AutomatorCore.notify('No modules (.allActiveProd) found.', 'warn');
-            break;
-          }
+          AutomatorCore.notify('No modules (.allActiveProd) found.', 'warn');
+          break;
         }
 
         const total = cards.length;
@@ -390,7 +388,7 @@
         }
 
         // 1b. If unit has a Get Started / direct route entry button into sub-course:
-        const startBtn = targetCard.querySelector("button.getStarted[onclick*=\"rout_learning_pathway\"], button.getStarted, button[onclick*=\"rout_learning_pathway\"], button.learningIcon");
+        const startBtn = targetCard.querySelector("button[onclick*=\"rout_learning_pathway\"], a[onclick*=\"rout_learning_pathway\"]");
         if (startBtn) {
           const onclick = startBtn.getAttribute("onclick") || "";
           const routMatch = onclick.match(/rout_learning_pathway\s*\(\s*'([^']+)'/);
@@ -453,6 +451,10 @@
 
         if (getStartedBtn) {
           AutomatorCore.notify(`Expanding "${targetTitle}"...`, 'info');
+          const onclickAttr = getStartedBtn.getAttribute('onclick') || '';
+          if (onclickAttr) {
+            await AutomatorCore.runInMainWorld(`EXEC_ONCLICK:${onclickAttr}`);
+          }
           DomUtils.simulateClick(getStartedBtn);
 
           // Dynamic wait for accordion to expand (max 1s)
