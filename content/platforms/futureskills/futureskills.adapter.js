@@ -313,22 +313,31 @@
         let targetType = '';
         let targetId = '';
 
+        // Dismiss any blocking badge modal if present
+        const closePopIcon = document.querySelector("#product_Credential.in .closePopIcon, #product_Credential.show .closePopIcon");
+        if (closePopIcon) {
+          DomUtils.simulateClick(closePopIcon);
+        }
+
         for (let i = 0; i < cards.length; i++) {
           const card = cards[i];
-          const h3 = card.querySelector('h3');
-          const title = h3?.getAttribute('data-original-title') || h3?.innerText?.trim() || `Unit ${i + 1}`;
-          const typeEl = card.querySelector('.textinfo');
-          const type = (typeEl?.innerText || '').trim();
-          const id = card.id ? card.id.replace('pro_', '') : '';
+          const h3 = card.querySelector("h3");
+          const title = h3?.getAttribute("data-original-title") || h3?.innerText?.trim() || `Unit ${i + 1}`;
+          const typeEl = card.querySelector(".textinfo");
+          const type = (typeEl?.innerText || "").trim();
+          const id = card.id ? card.id.replace("pro_", "") : "";
 
-          const complSpan = card.querySelector('.compltxt');
-          const isCompl = complSpan && window.getComputedStyle(complSpan).display !== 'none' && complSpan.innerText.includes('Completed');
-          const progressBar = card.querySelector('.progress-bar');
-          const isProgress100 = progressBar && progressBar.style.width === '100%';
+          const complSpan = card.querySelector(".compltxt");
+          const isCompl = complSpan && window.getComputedStyle(complSpan).display !== "none" && complSpan.innerText.includes("Completed");
+          const progressBar = card.querySelector(".progress-bar");
+          const isProgress100 = progressBar && progressBar.style.width === "100%";
+          const hasBadge = Boolean(card.querySelector(".badgesEarned, .badgeList span"));
+          const isCardDisabled = card.classList.contains("disableactive") || card.querySelector(".disableactive") !== null;
 
-          if (isCompl || isProgress100) {
+          if (isCompl || isProgress100 || hasBadge) {
             completedCount++;
-          } else if (!targetCard) {
+          } else if (!targetCard && !isCardDisabled) {
+            // Strictly target the single next available non-disabled, non-completed course!
             targetCard = card;
             targetTitle = title;
             targetType = type;
@@ -340,31 +349,57 @@
         AutomatorCore.updateHUD(`Course: ${completedCount}/${total} Completed (${currentPercent}%)`, currentPercent);
 
         if (!targetCard) {
-          AutomatorCore.notify('All modular units 100% Completed!', 'info');
-          AutomatorCore.updateHUD('Course 100% Completed!', 100);
+          AutomatorCore.notify("All active modular units 100% Completed!", "info");
+          AutomatorCore.updateHUD("Course 100% Completed!", 100);
           await chrome.storage.local.set({ speedoRunning: false });
-          AutomatorCore.stop('Course 100% Complete!');
+          AutomatorCore.stop("Course 100% Complete!");
           break;
         }
 
-        AutomatorCore.notify(`[Unit ${completedCount + 1}/${total}] "${targetTitle}" (${targetType || 'Module'})...`, 'info');
+        AutomatorCore.notify(`[Unit ${completedCount + 1}/${total}] "${targetTitle}" (${targetType || "Module"})...`, "info");
 
         // 1. Check if unit needs Enrollment (button: "Enrol" / onclick: buyProductNow)
-        const enrolBtn = Array.from(targetCard.querySelectorAll('button, a')).find(b => {
-          const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-          const onclick = (b.getAttribute('onclick') || '').toLowerCase();
-          return (txt === 'enrol' || txt === 'enroll' || onclick.includes('buyproductnow')) && !b.disabled;
+        const enrolBtn = Array.from(targetCard.querySelectorAll("button, a")).find(b => {
+          const txt = (b.innerText || b.textContent || "").trim().toLowerCase();
+          const onclick = (b.getAttribute("onclick") || "").toLowerCase();
+          return (txt === "enrol" || txt === "enroll" || onclick.includes("buyproductnow")) && !b.disabled;
         });
 
         if (enrolBtn) {
-          AutomatorCore.notify(`Auto-Enrolling in "${targetTitle}" (Free)... `, 'info');
-          DomUtils.simulateClick(enrolBtn);
-          const enrollStart = Date.now();
-          while (Date.now() - enrollStart < 2000) {
-            if (targetCard.querySelector('.getStarted, button[onclick*="getSubProduct"]')) break;
-            await DomUtils.sleep(200);
+          AutomatorCore.notify(`Auto-Enrolling in "${targetTitle}" (Free)... `, "info");
+          const onclick = enrolBtn.getAttribute("onclick") || "";
+          const buyMatch = onclick.match(/buyProductNow\s*\(\s*([^,]+)\s*,\s*'([^']+)'\s*,\s*'([^']+)'/);
+          if (buyMatch) {
+            const parentId = buyMatch[1].replace(/['"]/g, "").trim();
+            const prodId = buyMatch[2].trim();
+            const subType = buyMatch[3].trim();
+            await AutomatorCore.runInMainWorld(`BUY_PRODUCT_NOW:${parentId}:${prodId}:${subType}`);
           }
+          DomUtils.simulateClick(enrolBtn);
+
+          // Dynamic polling: wait for enrollment to commit
+          const enrollStart = Date.now();
+          while (AutomatorCore.isRunning && Date.now() - enrollStart < 4000) {
+            await DomUtils.sleep(300);
+            const currentEnrolBtn = Array.from(targetCard.querySelectorAll("button, a")).find(b => {
+              const txt = (b.innerText || b.textContent || "").trim().toLowerCase();
+              return txt === "enrol" || txt === "enroll";
+            });
+            if (!currentEnrolBtn || targetCard.querySelector(".learningIcon, button[onclick*=\"rout_learning_pathway\"], button[onclick*=\"getSubProduct\"]")) {
+              break;
+            }
+          }
+          await DomUtils.sleep(1000);
           continue; // Re-evaluate cards after enrollment commits
+        }
+
+        // 1b. If unit has a direct route/entry button into sub-course (e.g. learningPath / rout_learning_pathway)
+        const routBtn = targetCard.querySelector("button.learningIcon, a.routelink, button[onclick*=\"rout_learning_pathway\"]");
+        if (routBtn) {
+          AutomatorCore.notify(`Entering module course "${targetTitle}"...`, "info");
+          DomUtils.simulateClick(routBtn);
+          await DomUtils.sleep(2000);
+          return;
         }
 
         // 2. Check if unit is a Quiz (ready to launch)
