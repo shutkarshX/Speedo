@@ -281,6 +281,9 @@
     // Modular Dashboard Course Completer (Articles, Enrol & Quizzes)
     // -----------------------------------------------------------
     async runDashboardModularCompleter() {
+      // Prevent child iframes from duplicating actions or launching multiple tabs
+      if (window !== window.top) return;
+
       AutomatorCore.notify('Modular Course Dashboard detected. Beginning auto-progression...', 'info');
 
       const maxPasses = 30;
@@ -352,7 +355,11 @@
         if (enrolBtn) {
           AutomatorCore.notify(`Auto-Enrolling in "${targetTitle}" (Free)... `, 'info');
           DomUtils.simulateClick(enrolBtn);
-          await DomUtils.sleep(3000);
+          const enrollStart = Date.now();
+          while (Date.now() - enrollStart < 2000) {
+            if (targetCard.querySelector('.getStarted, button[onclick*="getSubProduct"]')) break;
+            await DomUtils.sleep(200);
+          }
           continue; // Re-evaluate cards after enrollment commits
         }
 
@@ -366,12 +373,11 @@
             AutomatorCore.notify(`Launching Quiz for "${targetTitle}"...`, 'info');
             const initialQuizTime = Date.now();
             DomUtils.simulateClick(startQuizBtn);
-            await DomUtils.sleep(3000);
 
-            // Stand by while Quiz solver auto-submits in the player tab
+            // Dynamic polling for quiz completion (max 25s, checks every 250ms)
             let quizFinished = false;
-            while (AutomatorCore.isRunning && Date.now() - initialQuizTime < 60000) {
-              await DomUtils.sleep(2000);
+            while (AutomatorCore.isRunning && Date.now() - initialQuizTime < 25000) {
+              await DomUtils.sleep(250);
               const data = await chrome.storage.local.get(['speedo_last_quiz_completed']);
               if (data?.speedo_last_quiz_completed && data.speedo_last_quiz_completed >= initialQuizTime - 3000) {
                 quizFinished = true;
@@ -380,9 +386,9 @@
             }
 
             if (quizFinished) {
-              AutomatorCore.notify('Quiz completed and passed with 100%! Refreshing dashboard to commit certificate...', 'info');
+              AutomatorCore.notify('Quiz 100% Passed! Finalizing Course...', 'info');
               AutomatorCore.updateHUD('Quiz 100% Passed! Finalizing Course...', 100);
-              await DomUtils.sleep(2000);
+              await DomUtils.sleep(1000);
               window.location.reload();
               return;
             }
@@ -400,7 +406,13 @@
         if (getStartedBtn) {
           AutomatorCore.notify(`Expanding "${targetTitle}"...`, 'info');
           DomUtils.simulateClick(getStartedBtn);
-          await DomUtils.sleep(1500);
+
+          // Dynamic wait for accordion to expand (max 1s)
+          const expStart = Date.now();
+          while (Date.now() - expStart < 1000) {
+            if (targetCard.querySelector('.post_cont_view_content, #markasComplete, button.viewReport')) break;
+            await DomUtils.sleep(150);
+          }
 
           // Step 3a: Trigger "View Content" to unlock mark as complete (suppress new tab)
           let viewLink = targetCard.querySelector('.post_cont_view_content, a[id*="view_content"], a[onclick*="pre_mark_as_complete"]');
@@ -410,7 +422,6 @@
 
           if (viewLink) {
             AutomatorCore.notify('Confirming content view...', 'info');
-            // Prevent opening unwanted new tab
             const originalHref = viewLink.getAttribute('href');
             const originalTarget = viewLink.getAttribute('target');
             viewLink.removeAttribute('target');
@@ -420,7 +431,7 @@
 
             if (originalHref) viewLink.setAttribute('href', originalHref);
             if (originalTarget) viewLink.setAttribute('target', originalTarget);
-            await DomUtils.sleep(1000);
+            await DomUtils.sleep(300);
           }
 
           // Step 3b: Click "Mark as Complete"
@@ -436,9 +447,15 @@
             AutomatorCore.notify(`Marking "${targetTitle}" as Complete...`, 'info');
             markBtn.style.cursor = 'pointer';
             DomUtils.simulateClick(markBtn);
-            await DomUtils.sleep(2500);
+
+            // Dynamic wait for card to reflect completion (max 1.5s)
+            const markStart = Date.now();
+            while (Date.now() - markStart < 1500) {
+              const complSpan = targetCard.querySelector('.compltxt');
+              if (complSpan && complSpan.innerText.includes('Completed')) break;
+              await DomUtils.sleep(150);
+            }
           } else {
-            // Direct Main World invocation fallback
             const onclickAttr = getStartedBtn.getAttribute('onclick') || '';
             const match = onclickAttr.match(/getSubProduct\s*\(\s*'([^']+)'\s*,\s*'[^']*'\s*,\s*'[^']*'\s*,\s*'[^']*'\s*,\s*'([^']+)'\s*\)/);
             if (match) {
@@ -446,9 +463,9 @@
               const prodId = match[2];
               AutomatorCore.notify(`Directly marking "${targetTitle}" complete via platform API...`, 'info');
               await AutomatorCore.runInMainWorld(`PRE_MARK_COMPLETE:${lsId}:${prodId}`);
-              await DomUtils.sleep(500);
+              await DomUtils.sleep(300);
               await AutomatorCore.runInMainWorld(`MARK_HUB_COMPLETE:${lsId}:${prodId}`);
-              await DomUtils.sleep(2500);
+              await DomUtils.sleep(1000);
             }
           }
 
@@ -1264,7 +1281,7 @@
       if (processBtn) {
         AutomatorCore.notify('Clicking "Process My Result & Close" to declare course complete...', 'info');
         DomUtils.simulateClick(processBtn);
-        await DomUtils.sleep(2500);
+        await DomUtils.sleep(1000);
         return true;
       }
       return false;

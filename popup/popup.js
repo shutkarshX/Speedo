@@ -165,31 +165,14 @@ if (btnCapture) {
 }
 
 btnStart.addEventListener('click', async () => {
-  appendLog('Dispatching start instruction (all frames)...', 'info');
+  appendLog('Dispatching start instruction...', 'info');
   updateUI(true);
 
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab && tab.id) {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id, allFrames: true },
-        func: () => {
-          if (window.AutomatorCore) {
-            const platform = window.PlatformRegistry ? window.PlatformRegistry.detectPlatform() : null;
-            if (platform && typeof platform.start === 'function') {
-              platform.start();
-            }
-          }
-        }
-      }).catch(() => {});
-    }
-  } catch (e) {}
-
+  // Single trigger via storage state
   await chrome.storage.local.set({ speedoRunning: true, springboardRunning: true, startTime: Date.now() });
 
   const res = await sendTabMessage('START_AUTOMATION');
   if (!res) {
-    updateUI(false);
     appendLog('Tab unready. Refresh target page and re-engage.', 'warn');
   }
 });
