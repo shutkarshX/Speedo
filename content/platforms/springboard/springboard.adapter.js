@@ -53,9 +53,6 @@
     },
 
     async init() {
-      console.log('[Springboard Adapter] Initialized on Wingspan platform:', window.location.pathname);
-
-      // Listen for parent frame IAP start instruction
       window.addEventListener('message', (event) => {
         if (event.data?.type === 'SPEEDO_START_IAP') {
           console.log('[Springboard Adapter] Received SPEEDO_START_IAP instruction from parent frame.');
@@ -63,19 +60,26 @@
         }
       });
 
-      // Auto-engage immediately when mounted directly inside IAP contest iframe
-      if (this.isIapContestPage()) {
-        AutomatorCore.notify('Autonomous IAP Contest Runner auto-engaging inside contest iframe.', 'info');
-        setTimeout(() => {
-          this.runIapContestRunner();
-        }, 1200);
-        return;
-      }
-
       try {
-        const data = await chrome.storage.local.get(['springboardRunning']);
-        if (data.springboardRunning) {
-          console.log('[Springboard Adapter] Auto-resuming Springboard automator...');
+        const data = await chrome.storage.local.get(['speedoRunning', 'springboardRunning']);
+        const isUserActive = data?.speedoRunning === true;
+
+        // If user did NOT start automation, sit completely dormant in standby
+        if (!isUserActive) {
+          console.log('[Springboard Adapter] Standing by. Automation not active.');
+          return;
+        }
+
+        if (this.isIapContestPage()) {
+          AutomatorCore.notify('Autonomous IAP Contest Runner engaging inside contest iframe.', 'info');
+          setTimeout(() => {
+            this.runIapContestRunner();
+          }, 1200);
+          return;
+        }
+
+        if (data?.springboardRunning) {
+          console.log('[Springboard Adapter] Resuming Springboard automator...');
           setTimeout(() => {
             this.start();
           }, 1500);

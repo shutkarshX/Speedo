@@ -60,8 +60,23 @@
      */
     async init() {
       try {
+        const data = await chrome.storage.local.get(['speedoRunning', 'pathwayRunner', 'autoResumeCourse']);
+        const isUserActive = data?.speedoRunning === true;
+
+        // If user did NOT start automation, sit completely dormant in standby
+        if (!isUserActive) {
+          console.log('[FutureSkills Adapter] Standing by. Automation not active.');
+          if (this.isPathwayPage()) {
+            setTimeout(() => {
+              this.injectPathwayBanner();
+            }, 2000);
+          }
+          return;
+        }
+
+        // Active automation flows (only when user clicked Start)
         if (this.isQuizPage()) {
-          console.log('[FutureSkills Adapter] Quiz page detected!');
+          console.log('[FutureSkills Adapter] Active automation: Quiz page detected.');
           if (this.isQuizAlreadySubmitted()) {
             AutomatorCore.notify('Quiz is already completed and passed! Closing tab in 1s...', 'info');
             await chrome.storage.local.set({ speedo_last_quiz_completed: Date.now() });
@@ -71,39 +86,28 @@
             }, 1000);
             return;
           }
-          AutomatorCore.notify('FutureSkills Quiz detected on page. Auto-solving in 1.5s...', 'info');
+          AutomatorCore.notify('FutureSkills Quiz detected. Auto-solving in 1.5s...', 'info');
           setTimeout(() => {
             if (!AutomatorCore.isRunning) this.start();
           }, 1500);
           return;
         }
 
-        const data = await chrome.storage.local.get(['pathwayRunner', 'autoResumeCourse']);
-
         // Check if on Course Player page
         if (this.isCoursePlayerPage()) {
-          if (data?.pathwayRunner?.active || data?.autoResumeCourse) {
-            console.log('[FutureSkills Adapter] Auto-resume mode detected in Course Player!');
-            AutomatorCore.showHUD(` Resuming Course Automator in 1.5s...`);
-            setTimeout(() => {
-              if (!AutomatorCore.isRunning) this.start();
-            }, 1500);
-          }
+          console.log('[FutureSkills Adapter] Active automation in Course Player.');
+          AutomatorCore.showHUD('Resuming Course Automator in 1.5s...');
+          setTimeout(() => {
+            if (!AutomatorCore.isRunning) this.start();
+          }, 1500);
         } 
         // Check if on Pathway Dashboard page
         else if (this.isPathwayPage()) {
-          if (data?.pathwayRunner?.active) {
-            console.log('[FutureSkills Adapter] Pathway runner active on Dashboard! Advancing to next module...');
-            AutomatorCore.showHUD(' Pathway Automator: Checking next module in 2.5s...');
-            setTimeout(() => {
-              if (!AutomatorCore.isRunning) this.start();
-            }, 2500);
-          } else {
-            // Inject floating quick-launch banner on Pathway page
-            setTimeout(() => {
-              this.injectPathwayBanner();
-            }, 2000);
-          }
+          console.log('[FutureSkills Adapter] Active automation on Dashboard.');
+          AutomatorCore.showHUD('Modular Course Automator Active...');
+          setTimeout(() => {
+            if (!AutomatorCore.isRunning) this.start();
+          }, 2000);
         }
       } catch (e) {
         console.warn('[FutureSkills Adapter] Init error:', e);
