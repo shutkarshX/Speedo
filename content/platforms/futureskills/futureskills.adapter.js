@@ -354,10 +354,11 @@
           }
 
           if (quizCompleted) {
-            AutomatorCore.notify(`Quiz "${unitTitle}" completed! Proceeding to next unit...`, 'info');
+            AutomatorCore.notify(`Quiz "${unitTitle}" completed! Reloading player to advance to next node...`, 'info');
             targetUnit.classList.add('marked');
-            await DomUtils.sleep(1000);
-            continue;
+            await DomUtils.sleep(800);
+            window.location.reload();
+            return;
           } else {
             AutomatorCore.notify(`Quiz wait complete for "${unitTitle}". Checking status...`, 'info');
           }
@@ -692,10 +693,15 @@
       if (startBtn && (startBtn.offsetWidth > 0 || startBtn.getClientRects().length > 0)) {
         AutomatorCore.notify('Clicking "Start Quiz"...', 'info');
         DomUtils.simulateClick(startBtn);
-        await DomUtils.sleep(1200);
+        // Dynamic wait for quiz questions container to mount
+        const startWait = Date.now();
+        while (Date.now() - startWait < 3000) {
+          if (document.querySelector('.quiz-page-1, input[type="radio"], [onclick*="check_answer"]')) break;
+          await DomUtils.sleep(100);
+        }
       }
 
-      // 2. Wait dynamically for questions payload to mount (up to 10s)
+      // 2. Wait dynamically for questions payload to mount (polling every 100ms)
       let questions = [];
       const startTime = Date.now();
       while (Date.now() - startTime < 10000) {
@@ -726,7 +732,7 @@
         }
 
         if (questions.length > 0) break;
-        await DomUtils.sleep(600);
+        await DomUtils.sleep(200);
       }
 
       AutomatorCore.notify(`Identified ${questions.length} questions in quiz payload.`, 'info');
@@ -735,11 +741,14 @@
         for (let i = 0; i < questions.length; i++) {
           if (!AutomatorCore.isRunning) break;
           const q = questions[i];
-          const qNum = i + 1;
-          AutomatorCore.notify(`[Q${qNum}/${questions.length}] Solving (ID: ${q.ques_id})...`, 'info');
+          const count = i + 1;
+          AutomatorCore.notify(`[Q${count}/${questions.length}] Solving (ID: ${q.ques_id})...`, 'info');
           AutomatorCore.updateHUD(`Solved ${i}/${questions.length} Quiz Questions`, Math.round((i / questions.length) * 100));
 
-          // Find correct option(s) with is_true == 1
+          // Current question card/page container
+          const pageContainer = document.querySelector(`.quiz-page-${count}, #quiz_question${count}`) || document;
+
+          // 1. Select the correct option(s) (is_true == 1)
           const correctOptions = q.all_options.filter(opt => opt.is_true == 1 || opt.is_true === true);
           if (correctOptions.length > 0) {
             for (const cOpt of correctOptions) {
@@ -750,63 +759,87 @@
                 inputEl.dispatchEvent(new Event('change', { bubbles: true }));
                 inputEl.dispatchEvent(new Event('input', { bubbles: true }));
                 DomUtils.simulateClick(inputEl);
-                AutomatorCore.notify(`[Q${qNum}] Selected correct answer (ID: ${cOpt.answer_id})`, 'info');
+                AutomatorCore.notify(`[Q${count}] Selected correct answer (ID: ${cOpt.answer_id})`, 'info');
               } else {
-                // Click option label or container
                 const container = document.getElementById(`container_${cOpt.answer_id}`) || document.getElementById(`${cOpt.answer_id}`);
                 if (container) {
                   DomUtils.simulateClick(container);
-                  AutomatorCore.notify(`[Q${qNum}] Clicked option container #${cOpt.answer_id}`, 'info');
+                  AutomatorCore.notify(`[Q${count}] Clicked option container #${cOpt.answer_id}`, 'info');
                 }
               }
             }
           } else {
-            // Exploratory fallback: select first option
-            const firstInput = document.querySelector(`.checkbox_${q.ques_id}, input[name="select_option_${q.ques_id}"]`);
+            const firstInput = pageContainer.querySelector(`.checkbox_${q.ques_id}, input[name="select_option_${q.ques_id}"]`);
             if (firstInput) {
               firstInput.checked = true;
               DomUtils.simulateClick(firstInput);
             }
           }
 
-          await DomUtils.sleep(400);
+          // Dynamic wait for option check
+          await DomUtils.sleep(250);
 
-          // Click question validation submit button: check_answer(ques_id, count, ...)
-          const stepSubmit = Array.from(document.querySelectorAll('.submit_quiz_step1, [onclick*="check_answer"]')).find(b => {
-            const oc = b.getAttribute('onclick') || '';
-            return oc.includes(String(q.ques_id)) || (b.offsetWidth > 0 && b.offsetParent !== null);
-          }) || document.querySelector('.submit_quiz_step1');
+          // 2. Click question submit button specifically for this question (check_answer)
+          const stepSubmit = pageContainer.querySelector('.submit_quiz_step1, [onclick*="check_answer"]') ||
+                             document.querySelector(`[onclick*="check_answer(${q.ques_id}"]`) ||
+                             document.querySelector('.submit_quiz_step1');
 
           if (stepSubmit) {
-            DomUtils.simulateClick(stepSubmit);
-            await DomUtils.sleep(600);
+            ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+              stepSubmit.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+            });
+            try { stepSubmit.click(); } catch (e) {}
+
+            // Dynamic wait for slide animation
+            const checkWait = Date.now();
+            while (Date.now() - checkWait < 1500) {
+              if (pageContainer.querySelector('.correct_ans, .wrong_ans')) break;
+              await DomUtils.sleep(100);
+            }
           }
 
-          // Advance to next question or view result
-          if (i < questions.length - 1) {
-            const nextBtn = Array.from(document.querySelectorAll('button, a')).find(b => {
-              const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-              const oc = b.getAttribute('onclick') || '';
-              return txt.includes('next question') || oc.includes('page_change') || b.classList.contains('quiz_button');
-            });
+          // 3. Advance to next question (strictly for this question index)
+          if (count < questions.length) {
+            const nextBtn = pageContainer.querySelector(`[onclick*="page_change(${count})"], .fake_next_question_div button, .next_question_div a, .quiz_button`) ||
+                            document.querySelector(`[onclick*="page_change(${count})"]`);
+
             if (nextBtn) {
-              DomUtils.simulateClick(nextBtn);
-              await DomUtils.sleep(800);
+              ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+                nextBtn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+              });
+              try { nextBtn.click(); } catch (e) {}
+
+              // Dynamic wait for next page to mount
+              const nextPageWait = Date.now();
+              while (Date.now() - nextPageWait < 2000) {
+                const nextPage = document.querySelector(`.quiz-page-${count + 1}`);
+                if (nextPage && (nextPage.offsetWidth > 0 || window.getComputedStyle(nextPage).display !== 'none')) break;
+                await DomUtils.sleep(100);
+              }
             }
           }
         }
 
-        await DomUtils.sleep(600);
+        // 4. Final Submit / View Result
+        await DomUtils.sleep(400);
+        const finishBtns = Array.from(document.querySelectorAll('button.submit_quiz_btn, .quizz_btn, button[type="submit"], input[type="submit"]'));
+        const finishBtn = finishBtns.find(b => b.offsetWidth > 0 || b.getClientRects().length > 0) || finishBtns[0];
 
-        // Final Submit / View Result
-        const finishBtn = document.querySelector('button.submit_quiz_btn, .quizz_btn, button[type="submit"], input[type="submit"]');
         if (finishBtn) {
           AutomatorCore.notify('Submitting quiz with 100% correct score...', 'info');
           ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
             finishBtn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
           });
-          DomUtils.simulateClick(finishBtn);
-          await DomUtils.sleep(1500);
+          try { finishBtn.click(); } catch (e) {}
+
+          const form = finishBtn.closest('form') || document.querySelector('form[action*="create_survey"]');
+          if (form) {
+            try {
+              if (typeof form.requestSubmit === 'function') {
+                form.requestSubmit();
+              }
+            } catch (e) {}
+          }
         }
 
         try {
