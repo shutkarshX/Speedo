@@ -133,15 +133,28 @@ if (btnCapture) {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab && tab.id) {
-        await chrome.scripting.executeScript({
+        const results = await chrome.scripting.executeScript({
           target: { tabId: tab.id, allFrames: true },
-          func: () => {
-            if (window.AutomatorCore && typeof window.AutomatorCore.captureAndSendPage === 'function') {
-              window.AutomatorCore.captureAndSendPage();
+          func: () => ({
+            url: window.location.href,
+            title: document.title,
+            html: document.documentElement.outerHTML
+          })
+        });
+
+        if (Array.isArray(results) && results.length > 0) {
+          for (const frame of results) {
+            if (frame && frame.result && frame.result.html) {
+              chrome.runtime.sendMessage({
+                action: 'SEND_DEBUG_DUMP',
+                payload: frame.result
+              }).catch(() => {});
             }
           }
-        });
-        appendLog('DOM snapshots delivered to bridge.', 'info');
+          appendLog('DOM snapshots delivered to bridge.', 'info');
+        } else {
+          await sendTabMessage('CAPTURE_PAGE');
+        }
       } else {
         await sendTabMessage('CAPTURE_PAGE');
       }
