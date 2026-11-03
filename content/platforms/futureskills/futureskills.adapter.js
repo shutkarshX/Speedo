@@ -166,9 +166,7 @@
       // 1. Wait for modules to render (AngularJS dynamic load)
       const rendered = await this.waitForPathwayModules(10000);
       if (!rendered) {
-        AutomatorCore.notify('No modules (.allActiveProd) found after waiting.', 'error');
-        AutomatorCore.updateHUD('Error: Modules failed to load', 0);
-        AutomatorCore.stop('No modules found.');
+        AutomatorCore.notify('No modules (.allActiveProd) found after waiting on this frame.', 'warn');
         return;
       }
 
@@ -286,10 +284,14 @@
       while (AutomatorCore.isRunning && pass < maxPasses) {
         pass++;
 
-        const cards = Array.from(document.querySelectorAll('.allActiveProd'));
+        let cards = Array.from(document.querySelectorAll('.allActiveProd'));
         if (cards.length === 0) {
-          AutomatorCore.notify('No modules (.allActiveProd) found.', 'warn');
-          break;
+          await DomUtils.sleep(2000);
+          cards = Array.from(document.querySelectorAll('.allActiveProd'));
+          if (cards.length === 0) {
+            AutomatorCore.notify('No modules (.allActiveProd) found.', 'warn');
+            break;
+          }
         }
 
         const total = cards.length;
