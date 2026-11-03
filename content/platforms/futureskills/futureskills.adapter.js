@@ -358,14 +358,27 @@
           });
           if (startQuizBtn) {
             AutomatorCore.notify(`Launching Quiz for "${targetTitle}"...`, 'info');
+            const initialQuizTime = Date.now();
             DomUtils.simulateClick(startQuizBtn);
             await DomUtils.sleep(3000);
+
             // Stand by while Quiz solver auto-submits in the player tab
-            let quizWait = Date.now();
-            while (AutomatorCore.isRunning && Date.now() - quizWait < 60000) {
+            let quizFinished = false;
+            while (AutomatorCore.isRunning && Date.now() - initialQuizTime < 60000) {
               await DomUtils.sleep(2000);
-              const complSpan = targetCard.querySelector('.compltxt');
-              if (complSpan && complSpan.innerText.includes('Completed')) break;
+              const data = await chrome.storage.local.get(['speedo_last_quiz_completed']);
+              if (data?.speedo_last_quiz_completed && data.speedo_last_quiz_completed >= initialQuizTime - 3000) {
+                quizFinished = true;
+                break;
+              }
+            }
+
+            if (quizFinished) {
+              AutomatorCore.notify('Quiz completed and passed with 100%! Refreshing dashboard to commit certificate...', 'info');
+              AutomatorCore.updateHUD('Quiz 100% Passed! Finalizing Course...', 100);
+              await DomUtils.sleep(2000);
+              window.location.reload();
+              return;
             }
             continue;
           }
