@@ -327,6 +327,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               console.log('[Course Automator] Invoking window.getsubdata(' + prodId + ')');
               window.getsubdata(prodId);
             }
+          } else if (typeof command === 'string' && command.startsWith('GET_SUB_PRODUCT:')) {
+            const parts = command.split(':');
+            const lsId = parts[1];
+            const prodId = parts[2];
+            if (typeof window.getSubProduct === 'function') {
+              console.log('[Course Automator] Invoking window.getSubProduct(' + lsId + ', ' + prodId + ')');
+              window.getSubProduct(lsId, '0', '1', 'false', prodId);
+            }
+          } else if (typeof command === 'string' && command.startsWith('PRE_MARK_COMPLETE:')) {
+            const parts = command.split(':');
+            const lsId = parts[1];
+            const prodId = parts[2];
+            if (typeof window.pre_mark_as_complete === 'function') {
+              console.log('[Course Automator] Invoking window.pre_mark_as_complete(' + lsId + ', ' + prodId + ')');
+              window.pre_mark_as_complete(lsId, prodId, 'false');
+            }
+          } else if (typeof command === 'string' && command.startsWith('MARK_HUB_COMPLETE:')) {
+            const parts = command.split(':');
+            const lsId = parts[1];
+            const prodId = parts[2];
+            if (typeof window.mark_as_complete_hub_product === 'function') {
+              console.log('[Course Automator] Invoking window.mark_as_complete_hub_product(' + lsId + ', ' + prodId + ')');
+              window.mark_as_complete_hub_product(lsId, prodId);
+            }
+          } else if (typeof command === 'string' && command.startsWith('BUY_PRODUCT_NOW:')) {
+            const parts = command.split(':');
+            const parentId = parts[1];
+            const prodId = parts[2];
+            const subType = parts[3] || '0';
+            if (typeof window.buyProductNow === 'function') {
+              console.log('[Course Automator] Invoking window.buyProductNow(' + parentId + ', ' + prodId + ')');
+              window.buyProductNow(parentId, prodId, subType, 'Free', 'learning_path');
+            }
           }
         } catch (e) {
           console.warn('[Course Automator Main World Error]', e);
@@ -455,4 +488,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true; // async sendResponse
   }
+});
+
+// Auto-close external article tabs opened via "View Content" during modular course automation
+chrome.tabs.onCreated.addListener((tab) => {
+  chrome.storage.local.get(['speedoRunning'], (data) => {
+    if (data?.speedoRunning) {
+      setTimeout(async () => {
+        try {
+          const freshTab = await chrome.tabs.get(tab.id);
+          const u = (freshTab?.url || freshTab?.pendingUrl || '').toLowerCase();
+          // If tab is an external web article/blog/doc (not LMS, not Quiz, not Chrome internal)
+          if (
+            u && 
+            !u.includes('futureskillsprime.in') && 
+            !u.includes('onwingspan.com') && 
+            !u.includes('infosysapps.com') &&
+            !u.startsWith('chrome://') &&
+            !u.startsWith('chrome-extension://')
+          ) {
+            console.log('[Course Automator] Auto-closing external article tab:', u);
+            chrome.tabs.remove(tab.id).catch(() => {});
+          }
+        } catch (e) {}
+      }, 2000);
+    }
+  });
 });

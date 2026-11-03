@@ -26,6 +26,16 @@
              document.querySelectorAll('.allActiveProd').length > 0;
     },
 
+    isDashboardModularCourse() {
+      const cards = document.querySelectorAll('.allActiveProd');
+      for (const card of cards) {
+        if (card.querySelector('.getStarted, button[onclick*="getSubProduct"], button[onclick*="buyProductNow"]')) {
+          return true;
+        }
+      }
+      return false;
+    },
+
     isCoursePlayerPage() {
       return window.location.pathname.includes('/LX/content_players/') || 
              document.querySelectorAll('.innerDefault').length > 0;
@@ -257,6 +267,170 @@
         await DomUtils.sleep(500);
       }
       return false;
+    },
+
+    // -----------------------------------------------------------
+    // Modular Dashboard Course Completer (Articles, Enrol & Quizzes)
+    // -----------------------------------------------------------
+    async runDashboardModularCompleter() {
+      AutomatorCore.notify('Modular Course Dashboard detected. Beginning auto-progression...', 'info');
+
+      const maxPasses = 30;
+      let pass = 0;
+
+      while (AutomatorCore.isRunning && pass < maxPasses) {
+        pass++;
+
+        const cards = Array.from(document.querySelectorAll('.allActiveProd'));
+        if (cards.length === 0) {
+          AutomatorCore.notify('No modules (.allActiveProd) found.', 'warn');
+          break;
+        }
+
+        const total = cards.length;
+        let completedCount = 0;
+        let targetCard = null;
+        let targetTitle = '';
+        let targetType = '';
+        let targetId = '';
+
+        for (let i = 0; i < cards.length; i++) {
+          const card = cards[i];
+          const h3 = card.querySelector('h3');
+          const title = h3?.getAttribute('data-original-title') || h3?.innerText?.trim() || `Unit ${i + 1}`;
+          const typeEl = card.querySelector('.textinfo');
+          const type = (typeEl?.innerText || '').trim();
+          const id = card.id ? card.id.replace('pro_', '') : '';
+
+          const complSpan = card.querySelector('.compltxt');
+          const isCompl = complSpan && window.getComputedStyle(complSpan).display !== 'none' && complSpan.innerText.includes('Completed');
+          const progressBar = card.querySelector('.progress-bar');
+          const isProgress100 = progressBar && progressBar.style.width === '100%';
+
+          if (isCompl || isProgress100) {
+            completedCount++;
+          } else if (!targetCard) {
+            targetCard = card;
+            targetTitle = title;
+            targetType = type;
+            targetId = id;
+          }
+        }
+
+        const currentPercent = Math.round((completedCount / total) * 100);
+        AutomatorCore.updateHUD(`Course: ${completedCount}/${total} Completed (${currentPercent}%)`, currentPercent);
+
+        if (!targetCard) {
+          AutomatorCore.notify('All modular units 100% Completed!', 'info');
+          AutomatorCore.updateHUD('Course 100% Completed!', 100);
+          AutomatorCore.stop('Course 100% Complete!');
+          break;
+        }
+
+        AutomatorCore.notify(`[Unit ${completedCount + 1}/${total}] "${targetTitle}" (${targetType || 'Module'})...`, 'info');
+
+        // 1. Check if unit needs Enrollment (button: "Enrol" / onclick: buyProductNow)
+        const enrolBtn = Array.from(targetCard.querySelectorAll('button, a')).find(b => {
+          const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+          const onclick = (b.getAttribute('onclick') || '').toLowerCase();
+          return (txt === 'enrol' || txt === 'enroll' || onclick.includes('buyproductnow')) && !b.disabled;
+        });
+
+        if (enrolBtn) {
+          AutomatorCore.notify(`Auto-Enrolling in "${targetTitle}" (Free)... `, 'info');
+          DomUtils.simulateClick(enrolBtn);
+          await DomUtils.sleep(3000);
+          continue; // Re-evaluate cards after enrollment commits
+        }
+
+        // 2. Check if unit is a Quiz (ready to launch)
+        if (targetType.toLowerCase() === 'other' || targetTitle.toLowerCase().includes('quiz')) {
+          const startQuizBtn = Array.from(targetCard.querySelectorAll('button, a')).find(b => {
+            const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+            return txt.includes('quiz') || txt === 'get started' || txt === 'start' || txt === 'launch';
+          });
+          if (startQuizBtn) {
+            AutomatorCore.notify(`Launching Quiz for "${targetTitle}"...`, 'info');
+            DomUtils.simulateClick(startQuizBtn);
+            await DomUtils.sleep(3000);
+            // Stand by while Quiz solver auto-submits in the player tab
+            let quizWait = Date.now();
+            while (AutomatorCore.isRunning && Date.now() - quizWait < 60000) {
+              await DomUtils.sleep(2000);
+              const complSpan = targetCard.querySelector('.compltxt');
+              if (complSpan && complSpan.innerText.includes('Completed')) break;
+            }
+            continue;
+          }
+        }
+
+        // 3. For Articles / Videos: Check if "Get Started" is present
+        const getStartedBtn = Array.from(targetCard.querySelectorAll('button, a')).find(b => {
+          const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+          const onclick = (b.getAttribute('onclick') || '').toLowerCase();
+          return (txt === 'get started' || onclick.includes('getsubproduct') || b.classList.contains('getStarted')) && !b.disabled;
+        });
+
+        if (getStartedBtn) {
+          AutomatorCore.notify(`Expanding "${targetTitle}"...`, 'info');
+          DomUtils.simulateClick(getStartedBtn);
+          await DomUtils.sleep(1500);
+
+          // Step 3a: Click "View Content" to unlock mark as complete
+          let viewLink = targetCard.querySelector('.post_cont_view_content, a[id*="view_content"], a[onclick*="pre_mark_as_complete"]');
+          if (!viewLink && targetId) {
+            viewLink = document.querySelector(`#post_complt_${targetId} .post_cont_view_content, #post_complt_${targetId} a[id*="view_content"]`);
+          }
+
+          if (viewLink) {
+            AutomatorCore.notify('Opening content view...', 'info');
+            DomUtils.simulateClick(viewLink);
+            await DomUtils.sleep(1500);
+          }
+
+          // Step 3b: Click "Mark as Complete"
+          let markBtn = targetCard.querySelector('#markasComplete, button.viewReport, button[onclick*="mark_as_complete"]');
+          if (!markBtn && targetId) {
+            markBtn = document.querySelector(`#post_complt_${targetId} #markasComplete, #post_complt_${targetId} .viewReport`);
+          }
+          if (!markBtn) {
+            markBtn = document.querySelector('#post_completion_text #markasComplete, #markasComplete');
+          }
+
+          if (markBtn) {
+            AutomatorCore.notify(`Marking "${targetTitle}" as Complete...`, 'info');
+            markBtn.style.cursor = 'pointer';
+            DomUtils.simulateClick(markBtn);
+            await DomUtils.sleep(2500);
+          } else {
+            // Direct Main World invocation fallback
+            const onclickAttr = getStartedBtn.getAttribute('onclick') || '';
+            const match = onclickAttr.match(/getSubProduct\s*\(\s*'([^']+)'\s*,\s*'[^']*'\s*,\s*'[^']*'\s*,\s*'[^']*'\s*,\s*'([^']+)'\s*\)/);
+            if (match) {
+              const lsId = match[1];
+              const prodId = match[2];
+              AutomatorCore.notify(`Directly marking "${targetTitle}" complete via platform API...`, 'info');
+              await AutomatorCore.runInMainWorld(`PRE_MARK_COMPLETE:${lsId}:${prodId}`);
+              await DomUtils.sleep(500);
+              await AutomatorCore.runInMainWorld(`MARK_HUB_COMPLETE:${lsId}:${prodId}`);
+              await DomUtils.sleep(2500);
+            }
+          }
+
+          continue;
+        }
+
+        // 4. Fallback: Standard Launch button
+        const launchBtn = targetCard.querySelector('.launchBtn, a[onclick*="getsubdata"]');
+        if (launchBtn) {
+          AutomatorCore.notify(`Launching player for "${targetTitle}"...`, 'info');
+          DomUtils.simulateClick(launchBtn);
+          await DomUtils.sleep(3000);
+          break;
+        }
+
+        await DomUtils.sleep(2000);
+      }
     },
 
     injectPathwayBanner() {
