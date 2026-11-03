@@ -389,17 +389,26 @@
           continue; // Re-evaluate cards after enrollment commits
         }
 
-        // 1b. If unit has a direct route/entry button into sub-course (e.g. learningPath / rout_learning_pathway)
-        const routBtn = targetCard.querySelector("button.learningIcon, a.routelink, button[onclick*=\"rout_learning_pathway\"]");
-        if (routBtn) {
-          AutomatorCore.notify(`Entering module course "${targetTitle}"...`, "info");
-          const onclick = routBtn.getAttribute("onclick") || "";
-          if (onclick) {
-            await AutomatorCore.runInMainWorld(`EXEC_ONCLICK:${onclick}`);
+        // 1b. If unit has a Get Started / direct route entry button into sub-course:
+        const startBtn = targetCard.querySelector("button.getStarted[onclick*=\"rout_learning_pathway\"], button.getStarted, button[onclick*=\"rout_learning_pathway\"], button.learningIcon");
+        if (startBtn) {
+          const onclick = startBtn.getAttribute("onclick") || "";
+          const routMatch = onclick.match(/rout_learning_pathway\s*\(\s*'([^']+)'/);
+          
+          if (routMatch) {
+            const subCourseId = routMatch[1];
+            AutomatorCore.notify(`Entering module course "${targetTitle}" (ID: ${subCourseId})...`, "info");
+            DomUtils.simulateClick(startBtn);
+            if (onclick) {
+              await AutomatorCore.runInMainWorld(`EXEC_ONCLICK:${onclick}`);
+            }
+            setTimeout(() => {
+              if (window.location.href.includes("Products_detail") && !window.location.href.includes(subCourseId)) {
+                window.location.href = `/iDH/fsp/Dashboard/Products_detail/${subCourseId}`;
+              }
+            }, 1200);
+            return;
           }
-          DomUtils.simulateClick(routBtn);
-          await DomUtils.sleep(2000);
-          return;
         }
 
         // 2. Check if unit is a Quiz (ready to launch)
