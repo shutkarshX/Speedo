@@ -900,10 +900,7 @@
         // Dismiss proctoring warning if present
         await this.dismissProctoringFullscreenWarning();
 
-        // Capture page DOM to debug server immediately on start
-        try {
-          await AutomatorCore.captureAndSendPage();
-        } catch (e) {}
+        // Initialize assessment solving loop
 
         const areQuestionsMounted = () => {
           const optionInputs = document.querySelectorAll(

@@ -15,7 +15,7 @@
   }
 
   AutomatorCore.setActivePlatform(platform);
-  console.log(`[Course Automator] ✅ Platform detected & activated: "${platform.name}" (${platform.id})`);
+  console.log(`[Course Automator] Platform detected & activated: "${platform.name}" (${platform.id})`);
 
   // 2. Initialize platform adapter (lifecycle checks, banner injection, auto-resume)
   if (typeof platform.init === 'function') {
@@ -52,12 +52,6 @@
           isPlayer: platform && typeof platform.isCoursePlayerPage === 'function' ? platform.isCoursePlayerPage() : false
         });
         break;
-
-      case 'CAPTURE_PAGE':
-        AutomatorCore.captureAndSendPage()
-          .then((result) => sendResponse(result))
-          .catch((err) => sendResponse({ success: false, error: err.message }));
-        return true;
 
       default:
         sendResponse({ status: 'unknown_action' });

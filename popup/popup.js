@@ -1,6 +1,5 @@
 // Elements
 const btnStart = document.getElementById('btnStart');
-const btnCapture = document.getElementById('btnCapture');
 const btnStop = document.getElementById('btnStop');
 const statusBadge = document.getElementById('statusBadge');
 const statusDot = document.getElementById('statusDot');
@@ -126,30 +125,6 @@ sendTabMessage('GET_STATUS').then((response) => {
     platformBadge.textContent = 'Standby';
   }
 });
-
-if (btnCapture) {
-  btnCapture.addEventListener('click', async () => {
-    appendLog('Exporting DOM snapshot (all frames)...', 'info');
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab && tab.id) {
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id, allFrames: true },
-          func: () => {
-            if (window.AutomatorCore && typeof window.AutomatorCore.captureAndSendPage === 'function') {
-              window.AutomatorCore.captureAndSendPage();
-            }
-          }
-        });
-        appendLog('DOM snapshots delivered to bridge.', 'info');
-      } else {
-        await sendTabMessage('CAPTURE_PAGE');
-      }
-    } catch (e) {
-      await sendTabMessage('CAPTURE_PAGE');
-    }
-  });
-}
 
 btnStart.addEventListener('click', async () => {
   appendLog('Dispatching start instruction (all frames)...', 'info');

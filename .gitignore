@@ -3,5 +3,8 @@ node_modules/
 debug_logs.txt
 *.html
 *summary.json
+scratch/
+debug-server.js
+*dump*
 tools/
 .taste-skill/

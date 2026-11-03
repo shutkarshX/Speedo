@@ -148,21 +148,9 @@ window.AutomatorCore = (function () {
   }
 
   /**
-   * Live DOM capture for AI inspection
+   * Live DOM capture (no-op in production release)
    */
   async function captureAndSendPage() {
-    const payload = {
-      url: window.location.href,
-      title: document.title,
-      html: document.documentElement.outerHTML
-    };
-
-    try {
-      chrome.runtime.sendMessage({
-        action: 'SEND_DEBUG_DUMP',
-        payload
-      }).catch(() => {});
-    } catch (e) {}
     return { success: true };
   }
 
