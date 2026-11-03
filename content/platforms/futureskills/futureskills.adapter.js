@@ -60,8 +60,12 @@
      */
     async init() {
       try {
-        const data = await chrome.storage.local.get(['speedoRunning', 'speedoEnabled', 'pathwayRunner', 'autoResumeCourse']);
-        const isUserActive = data?.speedoRunning === true || data?.speedoEnabled === true;
+        const data = await chrome.storage.local.get(['speedoRunning', 'speedoExtensionEnabled', 'pathwayRunner', 'autoResumeCourse']);
+        if (data?.speedoExtensionEnabled === false) {
+          console.log('[FutureSkills Adapter] Extension disabled by master toggle.');
+          return;
+        }
+        const isUserActive = data?.speedoRunning === true;
 
         // If user did NOT start automation, sit completely dormant in standby
         if (!isUserActive) {

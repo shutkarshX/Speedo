@@ -5,6 +5,15 @@
  */
 
 (async function initAutomatorDispatcher() {
+  // If master toggle disabled the extension, do not run anything
+  try {
+    const extData = await chrome.storage.local.get(['speedoExtensionEnabled']);
+    if (extData?.speedoExtensionEnabled === false) {
+      console.log('[Course Automator] Extension disabled by master toggle.');
+      return;
+    }
+  } catch (e) {}
+
   console.log('[Course Automator] Initializing multi-platform orchestrator on:', window.location.hostname);
 
   // 1. Resolve matching platform adapter
@@ -79,18 +88,23 @@
 
   // 5. Universal cross-frame runner synchronization via storage
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && (changes.speedoRunning || changes.speedoEnabled)) {
-      const isEnabled = changes.speedoRunning
-        ? changes.speedoRunning.newValue === true
-        : changes.speedoEnabled?.newValue === true;
-
-      if (isEnabled) {
-        if (!AutomatorCore.isRunning && platform && typeof platform.start === 'function') {
-          platform.start();
-        }
-      } else {
+    if (area === 'local') {
+      if (changes.speedoExtensionEnabled && changes.speedoExtensionEnabled.newValue === false) {
         if (AutomatorCore.isRunning) {
-          AutomatorCore.stop('Automation stopped.');
+          AutomatorCore.stop('Extension disabled by user via toggle switch.');
+        }
+        return;
+      }
+
+      if (changes.speedoRunning) {
+        if (changes.speedoRunning.newValue === true) {
+          if (!AutomatorCore.isRunning && platform && typeof platform.start === 'function') {
+            platform.start();
+          }
+        } else {
+          if (AutomatorCore.isRunning) {
+            AutomatorCore.stop('Automation stopped.');
+          }
         }
       }
     }
