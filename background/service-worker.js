@@ -360,6 +360,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               console.log('[Course Automator] Invoking window.buyProductNow(' + parentId + ', ' + prodId + ')');
               window.buyProductNow(parentId, prodId, subType, 'Free', 'learning_path');
             }
+          } else if (typeof command === "string" && command.startsWith("EXEC_ONCLICK:")) {
+            const code = command.substring("EXEC_ONCLICK:".length);
+            console.log("[Course Automator] Main World evaluating onclick:", code);
+            try {
+              new Function(code)();
+            } catch (err) {
+              console.warn("[Course Automator Main World Eval Error]", err);
+            }
+          } else if (typeof command === "string" && command.startsWith("CLICK_SELECTOR:")) {
+            const sel = command.substring("CLICK_SELECTOR:".length);
+            const el = document.querySelector(sel);
+            if (el) {
+              const oc = el.getAttribute("onclick");
+              if (oc) {
+                try { new Function(oc).call(el); } catch (e) { el.click(); }
+              } else {
+                el.click();
+              }
+            }
           }
         } catch (e) {
           console.warn('[Course Automator Main World Error]', e);
