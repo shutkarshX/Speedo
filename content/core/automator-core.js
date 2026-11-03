@@ -136,9 +136,9 @@ window.AutomatorCore = (function () {
    * Stop automation and clean up state
    */
   function stop(reason = 'Automation stopped.') {
+    if (!isRunning) return; // Prevent recursive trigger loop
     isRunning = false;
     try {
-      chrome.storage.local.set({ speedoRunning: false, springboardRunning: false });
       chrome.storage.local.remove([
         'pathwayRunner',
         'autoResumeCourse',

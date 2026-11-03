@@ -196,7 +196,6 @@ btnStart.addEventListener('click', async () => {
 
 btnStop.addEventListener('click', async () => {
   appendLog('Terminating automation across all tabs and frames...', 'warn');
-  await chrome.storage.local.set({ speedoRunning: false, springboardRunning: false });
   await chrome.storage.local.remove([
     'springboardRunning',
     'pathwayRunner',

@@ -81,11 +81,13 @@
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && changes.speedoRunning) {
       if (changes.speedoRunning.newValue === true) {
-        if (platform && typeof platform.start === 'function') {
+        if (!AutomatorCore.isRunning && platform && typeof platform.start === 'function') {
           platform.start();
         }
       } else {
-        AutomatorCore.stop('Automation stopped.');
+        if (AutomatorCore.isRunning) {
+          AutomatorCore.stop('Automation stopped.');
+        }
       }
     }
   });
