@@ -138,6 +138,7 @@
     onStop(reason) {
       console.log('[FutureSkills Adapter] Stopped:', reason);
       chrome.storage.local.remove(['autoResumeCourse']).catch(() => {});
+      this.pauseAndMuteAllVideos();
     },
 
     // -----------------------------------------------------------
@@ -347,6 +348,7 @@
         AutomatorCore.notify(`[${completedUnits.length + 1}/${totalUnits}] Completing: "${unitTitle}"`, 'info');
 
         // 4. Click target unit to activate on screen
+        this.pauseAndMuteAllVideos();
         try {
           targetUnit.click();
         } catch (e) {}
@@ -460,8 +462,9 @@
           if (tick) tick.style.display = 'block';
         }
 
+        this.pauseAndMuteAllVideos();
         this.dismissWarningPopupsSafely();
-        await DomUtils.sleep(1200);
+        await DomUtils.sleep(1000);
       }
     },
 
@@ -711,6 +714,18 @@
       } catch (e) {}
     },
 
+    pauseAndMuteAllVideos() {
+      try {
+        document.querySelectorAll('video, audio').forEach(vid => {
+          try {
+            vid.muted = true;
+            vid.volume = 0;
+            vid.pause();
+          } catch (e) {}
+        });
+      } catch (e) {}
+    },
+
     async completeVideoUnit() {
       const videos = document.querySelectorAll('video');
       if (videos.length === 0) return;
@@ -718,6 +733,7 @@
       videos.forEach((vid) => {
         try {
           vid.muted = true;
+          vid.volume = 0;
           if (vid.duration && !vid.ended) {
             vid.currentTime = Math.max(0, vid.duration - 0.2);
           }
@@ -726,11 +742,13 @@
           if (typeof vid.onended === 'function') {
             vid.onended();
           }
+          vid.pause();
         } catch (e) {}
       });
 
       await DomUtils.sleep(250);
       await AutomatorCore.runInMainWorld('VIDEO_ENDED');
+      this.pauseAndMuteAllVideos();
     },
 
     async waitForSpinnerToClear(maxWaitMs = 2500) {

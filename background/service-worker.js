@@ -339,16 +339,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               try {
                 Object.values(window.videojs.getPlayers()).forEach(p => {
                   if (p && !p.isDisposed()) {
-                    p.muted(true);
+                    try { p.muted(true); } catch (e) {}
                     if (p.duration && p.duration()) {
-                      p.currentTime(p.duration() - 0.1);
+                      try { p.currentTime(p.duration() - 0.1); } catch (e) {}
                     }
-                    p.trigger('timeupdate');
-                    p.trigger('ended');
+                    try { p.trigger('timeupdate'); } catch (e) {}
+                    try { p.trigger('ended'); } catch (e) {}
+                    try { p.pause(); } catch (e) {}
                   }
                 });
               } catch (e) {}
             }
+            try {
+              document.querySelectorAll('video, audio').forEach(v => {
+                v.muted = true;
+                v.volume = 0;
+                try { v.pause(); } catch (e) {}
+              });
+            } catch (e) {}
             if (typeof window.on_video_ended === 'function') {
               window.on_video_ended();
             } else if (typeof window.markings === 'function') {
