@@ -459,16 +459,23 @@
     },
 
     isPrerequisiteScreenShowing() {
-      const bodyText = (document.body.innerText || '').toLowerCase();
-      const hasPrereqHeading = bodyText.includes('prerequisites');
-      const hasPrereqText = bodyText.includes('to access this node') || 
-                            bodyText.includes('required to complete') || 
-                            bodyText.includes('prerequisite(s)');
-      
-      const prevBtn = this.getPreviousNodeBtn();
-      const hasPrevBtn = prevBtn && prevBtn.offsetParent !== null;
+      // 1. Check if the in-slide #pre_requisite screen is ACTUALLY rendered and visible
+      const prereqEl = document.getElementById('pre_requisite') || 
+                       document.querySelector('.pre-requisitecontainer, [id*="pre_requisite"]');
+      if (prereqEl && (prereqEl.offsetWidth > 0 || prereqEl.getClientRects().length > 0) && window.getComputedStyle(prereqEl).display !== 'none') {
+        return true;
+      }
 
-      return (hasPrereqHeading && hasPrereqText) || (hasPrereqText && hasPrevBtn);
+      // 2. Check if the #markWarningPopup modal is actively visible with prerequisite text
+      const warningPopup = document.getElementById('markWarningPopup');
+      if (warningPopup && (warningPopup.offsetWidth > 0 || warningPopup.getClientRects().length > 0) && window.getComputedStyle(warningPopup).display !== 'none') {
+        const text = (warningPopup.innerText || '').toLowerCase();
+        if (text.includes('prerequisite') || text.includes('required to complete')) {
+          return true;
+        }
+      }
+
+      return false;
     },
 
     getPreviousNodeBtn() {
@@ -547,9 +554,12 @@
         await DomUtils.sleep(300);
       }
 
-      const markReadIcon = document.querySelector('.markReadIcon');
-      if (markReadIcon) {
-        try { DomUtils.simulateClick(markReadIcon); } catch (e) {}
+      const markReadSelectors = ['.markReadIcon', '.markasReadIcon', '#markReadIcon', '#markReadPopupBtn', '[title*="Mark as Read" i]'];
+      for (const sel of markReadSelectors) {
+        const el = document.querySelector(sel);
+        if (el && (el.offsetWidth > 0 || el.getClientRects().length > 0)) {
+          try { DomUtils.simulateClick(el); } catch (e) {}
+        }
       }
 
       await AutomatorCore.runInMainWorld('MARK_READ');
