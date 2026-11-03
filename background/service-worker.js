@@ -288,6 +288,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // 1c. Close all Quiz tabs across FutureSkills
+  if (message.action === 'CLOSE_QUIZ_TABS') {
+    chrome.tabs.query({ url: '*://*.futureskillsprime.in/LX/quizzes/*' }).then(tabs => {
+      for (const t of tabs) {
+        chrome.tabs.remove(t.id).catch(() => {});
+      }
+      sendResponse({ success: true });
+    }).catch(() => {
+      sendResponse({ success: false });
+    });
+    return true;
+  }
+
   // 2. Execute functions directly inside page's MAIN world (CSP-safe)
   if (message.action === 'EXEC_IN_MAIN_WORLD') {
     const tabId = sender.tab ? sender.tab.id : null;

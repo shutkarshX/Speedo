@@ -36,6 +36,15 @@
              document.querySelector('.start_quiz_btn, .submit_quiz_step1, .submit_quiz_btn, form[action*="quiz_question_answers"]') !== null;
     },
 
+    isQuizAlreadySubmitted() {
+      if (document.querySelector('.retake_quiz_btn, .review_quiz_content, .rev_btn')) return true;
+      const text = (document.body?.innerText || '').toLowerCase();
+      if (text.includes('retake quiz attempt') || text.includes('view quiz responses') || text.includes('preview response')) {
+        return true;
+      }
+      return false;
+    },
+
     /**
      * Initialization & Auto-Resume Lifecycle
      */
@@ -43,6 +52,15 @@
       try {
         if (this.isQuizPage()) {
           console.log('[FutureSkills Adapter] Quiz page detected!');
+          if (this.isQuizAlreadySubmitted()) {
+            AutomatorCore.notify('Quiz is already completed and passed! Closing tab in 1s...', 'info');
+            await chrome.storage.local.set({ speedo_last_quiz_completed: Date.now() });
+            setTimeout(() => {
+              chrome.runtime.sendMessage({ action: 'CLOSE_CURRENT_TAB' });
+              try { window.close(); } catch (e) {}
+            }, 1000);
+            return;
+          }
           AutomatorCore.notify('FutureSkills Quiz detected on page. Auto-solving in 1.5s...', 'info');
           setTimeout(() => {
             if (!AutomatorCore.isRunning) this.start();
@@ -50,16 +68,16 @@
           return;
         }
 
-        const data = await chrome.storage.local.get(['pathwayRunner']);
+        const data = await chrome.storage.local.get(['pathwayRunner', 'autoResumeCourse']);
 
         // Check if on Course Player page
         if (this.isCoursePlayerPage()) {
-          if (data?.pathwayRunner?.active) {
-            console.log('[FutureSkills Adapter] Pathway mode detected in Course Player!');
-            AutomatorCore.showHUD(` Pathway Mode: Auto-starting "${data.pathwayRunner.currentModuleTitle || 'Course'}" in 2s...`);
+          if (data?.pathwayRunner?.active || data?.autoResumeCourse) {
+            console.log('[FutureSkills Adapter] Auto-resume mode detected in Course Player!');
+            AutomatorCore.showHUD(` Resuming Course Automator in 1.5s...`);
             setTimeout(() => {
               if (!AutomatorCore.isRunning) this.start();
-            }, 2000);
+            }, 1500);
           }
         } 
         // Check if on Pathway Dashboard page
@@ -102,6 +120,7 @@
           AutomatorCore.notify('Pathway Dashboard detected. Starting Pathway Orchestrator...', 'info');
           await this.runPathwayOrchestrator();
         } else if (this.isCoursePlayerPage()) {
+          await chrome.storage.local.set({ autoResumeCourse: true });
           AutomatorCore.showHUD('Initializing Course Automator...');
           AutomatorCore.notify('Course Player detected. Starting Course Completer...', 'info');
           await this.runCourseCompleter();
@@ -118,6 +137,7 @@
 
     onStop(reason) {
       console.log('[FutureSkills Adapter] Stopped:', reason);
+      chrome.storage.local.remove(['autoResumeCourse']).catch(() => {});
     },
 
     // -----------------------------------------------------------
@@ -376,11 +396,16 @@
             }
 
             if (quizCompleted) {
-              AutomatorCore.notify(`Quiz "${unitTitle}" completed! Reloading player to advance to next node...`, 'info');
+              AutomatorCore.notify(`Quiz "${unitTitle}" completed! Advancing to next node...`, 'info');
               targetUnit.classList.add('marked');
+              const tick = targetUnit.querySelector('.greenTickIcon');
+              if (tick) tick.style.display = 'block';
+
+              // Close all open quiz tabs
+              chrome.runtime.sendMessage({ action: 'CLOSE_QUIZ_TABS' });
+
               await DomUtils.sleep(800);
-              window.location.reload();
-              return;
+              continue;
             } else {
               AutomatorCore.notify(`Quiz "${unitTitle}" not yet completed. Pausing player to prevent prerequisite lockout.`, 'warn');
               return;
@@ -480,6 +505,7 @@
             }
             await DomUtils.sleep(350);
           }
+          chrome.runtime.sendMessage({ action: 'CLOSE_QUIZ_TABS' });
           await DomUtils.sleep(800);
           window.location.reload();
           return;
@@ -747,9 +773,26 @@
       AutomatorCore.showHUD('SPEEDO FutureSkills Quiz Solver Active');
       AutomatorCore.notify('Analyzing FutureSkills Quiz data...', 'info');
 
-      // 1. Click Start Quiz button if present on first screen
-      const startBtn = document.querySelector('.start_quiz_btn, .start_btn, [onclick*="start_quiz"], [onclick*="startQuiz"]');
-      if (startBtn && (startBtn.offsetWidth > 0 || startBtn.getClientRects().length > 0)) {
+      // Check immediately if quiz is already completed/submitted
+      if (this.isQuizAlreadySubmitted()) {
+        AutomatorCore.notify('Quiz is already completed and passed! Closing tab in 1s...', 'info');
+        await chrome.storage.local.set({ speedo_last_quiz_completed: Date.now() });
+        AutomatorCore.updateHUD('Quiz Already Passed! (100%)', 100);
+        await DomUtils.sleep(1000);
+        chrome.runtime.sendMessage({ action: 'CLOSE_CURRENT_TAB' });
+        try { window.close(); } catch (e) {}
+        return;
+      }
+
+      // 1. Click Start Quiz button if present on first screen (exclude review buttons)
+      const startBtn = Array.from(document.querySelectorAll('.start_quiz_btn, .start_btn, [onclick*="start_quiz"], [onclick*="startQuiz"]')).find(b => {
+        if (b.classList.contains('rev_btn')) return false;
+        const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+        if (txt.includes('view') || txt.includes('response')) return false;
+        return (b.offsetWidth > 0 || b.getClientRects().length > 0);
+      });
+
+      if (startBtn) {
         AutomatorCore.notify('Clicking "Start Quiz"...', 'info');
         DomUtils.simulateClick(startBtn);
         // Dynamic wait for quiz questions container to mount
@@ -795,6 +838,15 @@
       }
 
       AutomatorCore.notify(`Identified ${questions.length} questions in quiz payload.`, 'info');
+
+      if (questions.length === 0 && this.isQuizAlreadySubmitted()) {
+        AutomatorCore.notify('Quiz is already completed and passed! Closing tab in 1s...', 'info');
+        await chrome.storage.local.set({ speedo_last_quiz_completed: Date.now() });
+        await DomUtils.sleep(1000);
+        chrome.runtime.sendMessage({ action: 'CLOSE_CURRENT_TAB' });
+        try { window.close(); } catch (e) {}
+        return;
+      }
 
       if (questions.length > 0) {
         for (let i = 0; i < questions.length; i++) {
