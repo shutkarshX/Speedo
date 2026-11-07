@@ -49,7 +49,7 @@ window.DomUtils = window.DomUtils || {
   },
 
   /**
-   * Safely dispatch click without smooth-scroll layout thrashing
+   * Safely dispatch click without smooth-scroll layout thrashing or CSP javascript: violations
    */
   simulateClick(element) {
     if (!element) return false;
@@ -61,6 +61,37 @@ window.DomUtils = window.DomUtils || {
     } catch (e) {}
 
     try {
+      const href = element.getAttribute ? element.getAttribute('href') : null;
+      const isJsHref = typeof href === 'string' && href.trim().toLowerCase().startsWith('javascript:');
+      const parentJsAnchor = element.closest ? element.closest('a[href^="javascript:" i], a[href^="JAVASCRIPT:"]') : null;
+
+      if (isJsHref || parentJsAnchor) {
+        const targetAnchor = (element.tagName === 'A' && isJsHref) ? element : parentJsAnchor;
+        const origHref = targetAnchor.getAttribute('href');
+        const jsCode = origHref ? origHref.replace(/^javascript:/i, '').trim() : '';
+
+        // Temporarily strip href so Chrome cannot attempt javascript: URL navigation
+        targetAnchor.removeAttribute('href');
+
+        const evt = new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+        });
+        element.dispatchEvent(evt);
+
+        // Restore original href
+        if (origHref !== null) {
+          targetAnchor.setAttribute('href', origHref);
+        }
+
+        // Safely execute actual javascript: actions in Main World where permitted
+        if (jsCode && jsCode !== 'void(0)' && jsCode !== 'void(0);' && jsCode !== ';' && window.AutomatorCore?.runInMainWorld) {
+          window.AutomatorCore.runInMainWorld(`EXEC_ONCLICK:${jsCode}`);
+        }
+
+        return true;
+      }
       element.click();
     } catch (e) {}
 

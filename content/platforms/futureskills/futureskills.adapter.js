@@ -60,6 +60,26 @@
      */
     async init() {
       try {
+        // Listen for quiz completion signals to immediately reload dashboard to 100%
+        chrome.runtime.onMessage.addListener((msg) => {
+          if (msg?.action === 'RELOAD_DASHBOARD_FOR_QUIZ') {
+            console.log('[FutureSkills Adapter] Received RELOAD_DASHBOARD_FOR_QUIZ. Reloading in 1s...');
+            setTimeout(() => { window.location.reload(); }, 1000);
+          }
+        });
+
+        // If user focuses back to dashboard after quiz tab finished, auto-reload to sync 100%
+        window.addEventListener('focus', async () => {
+          if (this.isPathwayPage()) {
+            const stored = await chrome.storage.local.get(['speedo_last_quiz_completed']);
+            if (stored?.speedo_last_quiz_completed && Date.now() - stored.speedo_last_quiz_completed < 30000) {
+              await chrome.storage.local.remove(['speedo_last_quiz_completed']);
+              console.log('[FutureSkills Adapter] Focus regained after quiz completed. Reloading to sync 100%...');
+              window.location.reload();
+            }
+          }
+        });
+
         const data = await chrome.storage.local.get(['speedoRunning', 'speedoExtensionEnabled', 'pathwayRunner', 'autoResumeCourse']);
         if (data?.speedoExtensionEnabled === false) {
           console.log('[FutureSkills Adapter] Extension disabled by master toggle.');
@@ -82,9 +102,30 @@
         if (this.isQuizPage()) {
           console.log('[FutureSkills Adapter] Active automation: Quiz page detected.');
           if (this.isQuizAlreadySubmitted()) {
+            AutomatorCore.notify('Quiz already passed. Processing result with platform...', 'info');
+            
+            // 1. Click Continue / TOC if modal is open
+            const continueBtn = document.querySelector('.ApplyButton, button[onclick*="toc_click"], [onclick*="toc_click"]');
+            if (continueBtn) {
+              try {
+                DomUtils.simulateClick(continueBtn);
+                await AutomatorCore.runInMainWorld('EXEC_ONCLICK:if(typeof toc_click === "function"){ toc_click(); }');
+              } catch (e) {}
+              await DomUtils.sleep(1500);
+            }
+
+            // 2. Click next node to reach final declaration screen
+            await this.clickNextNode();
+            await DomUtils.sleep(2000);
+
+            // 3. Trigger "Process My Result & Close"
             await this.triggerProcessMyResult();
-            AutomatorCore.notify('Quiz is already completed and passed! Closing tab in 1.5s...', 'info');
+            await DomUtils.sleep(2500);
+
+            // 4. Mark quiz completed in storage only AFTER processing result!
             await chrome.storage.local.set({ speedo_last_quiz_completed: Date.now() });
+            AutomatorCore.notify('Result processed successfully! Reloading dashboard and closing tab...', 'info');
+            chrome.runtime.sendMessage({ action: 'RELOAD_DASHBOARD_FOR_QUIZ' }).catch(() => {});
             setTimeout(() => {
               chrome.runtime.sendMessage({ action: 'CLOSE_CURRENT_TAB' });
               try { window.close(); } catch (e) {}
@@ -286,19 +327,64 @@
 
       const maxPasses = 30;
       let pass = 0;
+      const stored = await chrome.storage.local.get(['completedModularUnits']);
+      const completedSet = new Set(stored?.completedModularUnits || []);
+      const failedEnrollSet = new Set();
 
-      // Dynamic initial wait for cards to render (AngularJS load)
-      let initialCards = Array.from(document.querySelectorAll('.allActiveProd'));
+      // Always track Master Pathway ID when on a pathway page
+      const currentUrl = window.location.href;
+      if (currentUrl.includes('260281442') || !window.location.pathname.includes('/260288489/')) {
+        const pathMatch = window.location.pathname.match(/Products_detail\/([^\/]+)/);
+        if (pathMatch) {
+          chrome.storage.local.set({ 
+            masterPathwayId: pathMatch[1],
+            masterPathwayUrl: currentUrl
+          }).catch(() => {});
+        }
+      }
+
+      // Strictly target course units in .contentlist_sec (NEVER touch #my_wishlist or "Related Products")
+      const getCourseCards = () => {
+        const container = document.querySelector(".contentlist_sec") || document.querySelector("#stamps-details");
+        let list = container 
+          ? Array.from(container.querySelectorAll(".allActiveProd"))
+          : Array.from(document.querySelectorAll(".allActiveProd"));
+        return list.filter(card => !card.closest("#my_wishlist, .wishlist_slider, .grid_item, .catalogStamp"));
+      };
+
+      // Dynamic initial wait for course units to render (AngularJS load)
+      let initialCards = getCourseCards();
       const initialWait = Date.now();
       while (initialCards.length === 0 && Date.now() - initialWait < 12000) {
         await DomUtils.sleep(500);
-        initialCards = Array.from(document.querySelectorAll('.allActiveProd'));
+        initialCards = getCourseCards();
       }
 
       while (AutomatorCore.isRunning && pass < maxPasses) {
         pass++;
 
-        let cards = Array.from(document.querySelectorAll('.allActiveProd'));
+        // Dismiss any blocking alert modals or badge credentials
+        const genericAlert = document.querySelector("#generic_alert, .confirmmodal");
+        if (genericAlert) {
+          const alertMsg = (genericAlert.querySelector(".confirmbox")?.innerText || genericAlert.innerText || "").trim().replace(/\s+/g, ' ');
+          AutomatorCore.notify(`Platform notice: ${alertMsg.slice(0, 60)}`, "warn");
+          console.warn("[FutureSkills Adapter] Dismissing alert modal:", alertMsg);
+          const okBtn = genericAlert.querySelector("button[data-dismiss='modal'], .cancelLink, .closePopIcon, button");
+          if (okBtn) {
+            DomUtils.simulateClick(okBtn);
+          } else {
+            genericAlert.remove();
+            document.querySelectorAll(".modal-backdrop").forEach(b => b.remove());
+          }
+          await DomUtils.sleep(400);
+        }
+
+        const closePopIcon = document.querySelector("#product_Credential.in .closePopIcon, #product_Credential.show .closePopIcon");
+        if (closePopIcon) {
+          DomUtils.simulateClick(closePopIcon);
+        }
+
+        let cards = getCourseCards();
         if (cards.length === 0) {
           AutomatorCore.notify('No modules (.allActiveProd) found.', 'warn');
           break;
@@ -311,12 +397,6 @@
         let targetType = '';
         let targetId = '';
 
-        // Dismiss any blocking badge modal if present
-        const closePopIcon = document.querySelector("#product_Credential.in .closePopIcon, #product_Credential.show .closePopIcon");
-        if (closePopIcon) {
-          DomUtils.simulateClick(closePopIcon);
-        }
-
         for (let i = 0; i < cards.length; i++) {
           const card = cards[i];
           const h3 = card.querySelector("h3");
@@ -326,16 +406,23 @@
           const id = card.id ? card.id.replace("pro_", "") : "";
 
           const complSpan = card.querySelector(".compltxt");
-          const isCompl = complSpan && window.getComputedStyle(complSpan).display !== "none" && complSpan.innerText.includes("Completed");
-          const progressBar = card.querySelector(".progress-bar");
-          const isProgress100 = progressBar && progressBar.style.width === "100%";
+          const hasComplSpan = complSpan && window.getComputedStyle(complSpan).display !== "none" && complSpan.innerText.includes("Completed");
+          const hasComplIcon = Boolean(card.querySelector(".rightCirclIcon, i.fa-check-circle")) && (card.innerText || "").includes("Completed");
+          const isCompl = hasComplSpan || hasComplIcon;
           const hasBadge = Boolean(card.querySelector(".badgesEarned, .badgeList span"));
           const isCardDisabled = card.classList.contains("disableactive") || card.querySelector(".disableactive") !== null;
 
-          if (isCompl || isProgress100 || hasBadge) {
+          // A unit is fully done if it shows "Completed", has badge earned, or is already registered in completedSet
+          // NOTE: FutureSkills permanently leaves the button label as "Retake" after quiz completion.
+          // Therefore, if it displays "Completed" or hasBadge, it is DONE and must NEVER be re-run!
+          const isUnitDone = isCompl || hasBadge || completedSet.has(title) || (id && completedSet.has(id));
+
+          if (isUnitDone) {
             completedCount++;
+            completedSet.add(title);
+            if (id) completedSet.add(id);
           } else if (!targetCard && !isCardDisabled) {
-            // Strictly target the single next available non-disabled, non-completed course!
+            // Strictly target the single next unfinalized unit
             targetCard = card;
             targetTitle = title;
             targetType = type;
@@ -349,6 +436,57 @@
         if (!targetCard) {
           AutomatorCore.notify("All active modular units 100% Completed!", "info");
           AutomatorCore.updateHUD("Course 100% Completed!", 100);
+
+          await this.triggerProcessMyResult();
+
+          const pathParts = window.location.pathname.split('/').filter(Boolean);
+          // Format: /iDH/fsp/Dashboard/Products_detail/<subId>/<parentId>
+          const subId = pathParts[4] || '';
+          let parentId = pathParts[5] || '';
+
+          // Look for parent pathway ID from previous/next navigation buttons if not in URL
+          if (!parentId) {
+            const navBtn = document.querySelector('button[onclick*="previous_next_button"], [onclick*="previous_next_button"]');
+            if (navBtn) {
+              const navMatch = (navBtn.getAttribute('onclick') || '').match(/previous_next_button\s*\(\s*'[^']*'\s*,\s*'([^']+)'/);
+              if (navMatch) parentId = navMatch[1];
+            }
+          }
+
+          const storedData = await chrome.storage.local.get(['masterPathwayId', 'masterPathwayUrl']);
+          if (!parentId && storedData?.masterPathwayId) {
+            parentId = storedData.masterPathwayId;
+          }
+
+          // Step A: Refresh the sub-course tab once if not yet visually showing 100%
+          const allVisuallyComplete = cards.every(c => {
+            const cs = c.querySelector(".compltxt");
+            const hasCs = cs && window.getComputedStyle(cs).display !== "none" && cs.innerText.includes("Completed");
+            const hasCi = Boolean(c.querySelector(".rightCirclIcon, i.fa-check-circle")) && (c.innerText || "").includes("Completed");
+            const hb = Boolean(c.querySelector(".badgesEarned, .badgeList span"));
+            return hasCs || hasCi || hb;
+          });
+
+          const reloadKey = `speedo_100_refreshed_${subId || 'course'}`;
+          if (!allVisuallyComplete && !sessionStorage.getItem(reloadKey)) {
+            sessionStorage.setItem(reloadKey, 'true');
+            AutomatorCore.notify('Refreshing course page to finalize verified 100%...', 'info');
+            await DomUtils.sleep(1500);
+            window.location.reload();
+            return;
+          }
+
+          // Step B: Automatically advance back to Master Pathway to continue the next course!
+          if (parentId && parentId !== subId) {
+            AutomatorCore.notify(`Course 100% Complete! Advancing to Master Pathway (${parentId})...`, "info");
+            await DomUtils.sleep(2000);
+            const targetUrl = storedData?.masterPathwayUrl && storedData.masterPathwayUrl.includes(parentId)
+              ? storedData.masterPathwayUrl
+              : `/iDH/fsp/Dashboard/Products_detail/${parentId}`;
+            window.location.href = targetUrl;
+            return;
+          }
+
           await chrome.storage.local.set({ speedoRunning: false });
           AutomatorCore.stop("Course 100% Complete!");
           break;
@@ -364,27 +502,37 @@
         });
 
         if (enrolBtn) {
+          if (failedEnrollSet.has(targetTitle)) {
+            AutomatorCore.notify(`Reloading to refresh subscription for "${targetTitle}"...`, 'info');
+            await DomUtils.sleep(1000);
+            window.location.reload();
+            return;
+          }
+
+          failedEnrollSet.add(targetTitle);
           AutomatorCore.notify(`Auto-Enrolling in "${targetTitle}" (Free)... `, "info");
           const onclick = enrolBtn.getAttribute("onclick") || "";
           if (onclick) {
             await AutomatorCore.runInMainWorld(`EXEC_ONCLICK:${onclick}`);
+          } else {
+            DomUtils.simulateClick(enrolBtn);
           }
-          DomUtils.simulateClick(enrolBtn);
 
-          // Dynamic polling: wait for enrollment to commit
+          // Dynamic polling: wait for enrollment to commit or alert to appear
           const enrollStart = Date.now();
-          while (AutomatorCore.isRunning && Date.now() - enrollStart < 4000) {
+          while (AutomatorCore.isRunning && Date.now() - enrollStart < 3500) {
             await DomUtils.sleep(300);
+            if (document.querySelector("#generic_alert")) break;
             const currentEnrolBtn = Array.from(targetCard.querySelectorAll("button, a")).find(b => {
               const txt = (b.innerText || b.textContent || "").trim().toLowerCase();
               return txt === "enrol" || txt === "enroll";
             });
-            if (!currentEnrolBtn || targetCard.querySelector(".learningIcon, button[onclick*=\"rout_learning_pathway\"], button[onclick*=\"getSubProduct\"]")) {
+            if (!currentEnrolBtn || targetCard.querySelector("button[onclick*=\"getSubProduct\"]")) {
               break;
             }
           }
-          await DomUtils.sleep(1000);
-          continue; // Re-evaluate cards after enrollment commits
+          await DomUtils.sleep(800);
+          continue; // Re-evaluate cards
         }
 
         // 1b. If unit has a Get Started / direct route entry button into sub-course:
@@ -413,7 +561,7 @@
         if (targetType.toLowerCase() === 'other' || targetTitle.toLowerCase().includes('quiz')) {
           const startQuizBtn = Array.from(targetCard.querySelectorAll('button, a')).find(b => {
             const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-            return txt.includes('quiz') || txt === 'get started' || txt === 'start' || txt === 'launch';
+            return txt.includes('quiz') || txt === 'get started' || txt === 'start' || txt === 'launch' || txt.includes('retake');
           });
           if (startQuizBtn) {
             AutomatorCore.notify(`Launching Quiz for "${targetTitle}"...`, 'info');
@@ -431,14 +579,24 @@
               }
             }
 
-            if (quizFinished) {
-              AutomatorCore.notify('Quiz 100% Passed! Finalizing Course...', 'info');
-              AutomatorCore.updateHUD('Quiz 100% Passed! Finalizing Course...', 100);
-              await DomUtils.sleep(1000);
-              window.location.reload();
-              return;
-            }
-            continue;
+            AutomatorCore.notify('Quiz finished. Reloading dashboard to reflect verified 100%...', 'info');
+            AutomatorCore.updateHUD('Quiz 100% Passed!', 100);
+
+            // Mark quiz as completed in memory and storage so it never re-launches
+            completedSet.add(targetTitle);
+            if (targetId) completedSet.add(targetId);
+            completedSet.add('Quiz');
+
+            const stored = await chrome.storage.local.get(['completedModularUnits']);
+            const compUnits = new Set(stored?.completedModularUnits || []);
+            compUnits.add(targetTitle);
+            if (targetId) compUnits.add(targetId);
+            compUnits.add('Quiz');
+            await chrome.storage.local.set({ completedModularUnits: Array.from(compUnits) });
+
+            await DomUtils.sleep(1500);
+            window.location.reload();
+            return;
           }
         }
 
@@ -454,8 +612,9 @@
           const onclickAttr = getStartedBtn.getAttribute('onclick') || '';
           if (onclickAttr) {
             await AutomatorCore.runInMainWorld(`EXEC_ONCLICK:${onclickAttr}`);
+          } else {
+            DomUtils.simulateClick(getStartedBtn);
           }
-          DomUtils.simulateClick(getStartedBtn);
 
           // Dynamic wait for accordion to expand (max 1s)
           const expStart = Date.now();
@@ -475,8 +634,12 @@
             const originalHref = viewLink.getAttribute('href');
             const originalTarget = viewLink.getAttribute('target');
             viewLink.removeAttribute('target');
-            viewLink.setAttribute('href', 'javascript:void(0)');
+            viewLink.setAttribute('href', '#');
 
+            const viewOnclick = viewLink.getAttribute('onclick');
+            if (viewOnclick) {
+              await AutomatorCore.runInMainWorld(`EXEC_ONCLICK:${viewOnclick}`);
+            }
             DomUtils.simulateClick(viewLink);
 
             if (originalHref) viewLink.setAttribute('href', originalHref);
@@ -485,6 +648,10 @@
           }
 
           // Step 3b: Click "Mark as Complete"
+          const subMatch = onclickAttr.match(/getSubProduct\s*\(\s*'([^']+)'\s*,\s*'[^']*'\s*,\s*'[^']*'\s*,\s*'[^']*'\s*,\s*'([^']+)'\s*\)/);
+          const lsId = subMatch ? subMatch[1] : '';
+          const prodId = subMatch ? subMatch[2] : '';
+
           let markBtn = targetCard.querySelector('#markasComplete, button.viewReport, button[onclick*="mark_as_complete"]');
           if (!markBtn && targetId) {
             markBtn = document.querySelector(`#post_complt_${targetId} #markasComplete, #post_complt_${targetId} .viewReport`);
@@ -495,30 +662,25 @@
 
           if (markBtn) {
             AutomatorCore.notify(`Marking "${targetTitle}" as Complete...`, 'info');
-            markBtn.style.cursor = 'pointer';
+            const markOnclick = markBtn.getAttribute('onclick') || '';
+            if (markOnclick) {
+              await AutomatorCore.runInMainWorld(`EXEC_ONCLICK:${markOnclick}`);
+            }
             DomUtils.simulateClick(markBtn);
-
-            // Dynamic wait for card to reflect completion (max 1.5s)
-            const markStart = Date.now();
-            while (Date.now() - markStart < 1500) {
-              const complSpan = targetCard.querySelector('.compltxt');
-              if (complSpan && complSpan.innerText.includes('Completed')) break;
-              await DomUtils.sleep(150);
-            }
-          } else {
-            const onclickAttr = getStartedBtn.getAttribute('onclick') || '';
-            const match = onclickAttr.match(/getSubProduct\s*\(\s*'([^']+)'\s*,\s*'[^']*'\s*,\s*'[^']*'\s*,\s*'[^']*'\s*,\s*'([^']+)'\s*\)/);
-            if (match) {
-              const lsId = match[1];
-              const prodId = match[2];
-              AutomatorCore.notify(`Directly marking "${targetTitle}" complete via platform API...`, 'info');
-              await AutomatorCore.runInMainWorld(`PRE_MARK_COMPLETE:${lsId}:${prodId}`);
-              await DomUtils.sleep(300);
-              await AutomatorCore.runInMainWorld(`MARK_HUB_COMPLETE:${lsId}:${prodId}`);
-              await DomUtils.sleep(1000);
-            }
           }
 
+          // Always guarantee platform completion via direct Main World API dispatch
+          if (lsId && prodId) {
+            await AutomatorCore.runInMainWorld(`PRE_MARK_COMPLETE:${lsId}:${prodId}`);
+            await DomUtils.sleep(250);
+            await AutomatorCore.runInMainWorld(`MARK_HUB_COMPLETE:${lsId}:${prodId}`);
+          }
+
+          completedSet.add(targetTitle);
+          if (targetId) completedSet.add(targetId);
+          if (lsId) completedSet.add(lsId);
+          await chrome.storage.local.set({ completedModularUnits: Array.from(completedSet) });
+          await DomUtils.sleep(1200);
           continue;
         }
 
@@ -1263,9 +1425,19 @@
         AutomatorCore.updateHUD('Quiz 100% Passed!', 100);
         AutomatorCore.notify('Quiz completed and passed! Prerequisites cleared.', 'info');
 
-        // Dynamic tab close if in dedicated quiz tab
+        // Dynamic result processing and tab close if in dedicated quiz tab
         if (window.location.pathname.includes('/LX/quizzes/')) {
-          AutomatorCore.notify('Closing quiz tab in 1.5s...', 'info');
+          await DomUtils.sleep(1500);
+          const nextNode = document.querySelector('.next-node, .next_node, #next_node, a.next, button.next, .slide_next, [title*="Next"]');
+          if (nextNode) {
+            AutomatorCore.notify('Advancing to next node for result processing...', 'info');
+            DomUtils.simulateClick(nextNode);
+            await DomUtils.sleep(1500);
+          }
+          await this.triggerProcessMyResult();
+          await DomUtils.sleep(1500);
+          AutomatorCore.notify('Result processed! Reloading dashboard and closing quiz tab...', 'info');
+          chrome.runtime.sendMessage({ action: 'RELOAD_DASHBOARD_FOR_QUIZ' }).catch(() => {});
           await DomUtils.sleep(1500);
           chrome.runtime.sendMessage({ action: 'CLOSE_CURRENT_TAB' });
           try { window.close(); } catch (e) {}
@@ -1359,13 +1531,13 @@
           moduleId: data.pathwayRunner.currentModuleId
         });
       } else {
-        AutomatorCore.updateHUD('Course 100% Complete! Refreshing page in 3s...', 100);
-        AutomatorCore.notify('Course 100% Complete! Reloading in 3s to reflect verified 100%...', 'info');
-        AutomatorCore.stop('Course 100% Complete!');
+        AutomatorCore.updateHUD('Course 100% Complete! Finalizing in 2s...', 100);
+        AutomatorCore.notify('Course 100% Complete! Closing player and returning to pathway...', 'info');
 
-        setTimeout(() => {
-          window.location.reload();
-        }, 3000);
+        // Close player tab to return to Master Pathway without stopping global automation
+        await DomUtils.sleep(2000);
+        chrome.runtime.sendMessage({ action: 'CLOSE_CURRENT_TAB' });
+        try { window.close(); } catch (e) {}
       }
     }
   };
